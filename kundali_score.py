@@ -1,6 +1,5 @@
-import swisseph as swe
 import datetime
-import math
+import swisseph as swe
 
 class Kundali:
     nadi_map = [

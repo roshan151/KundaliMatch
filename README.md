@@ -11,3 +11,5 @@ curl -X POST http://localhost:5000/upload \
 # Get schema
 SELECT * FROM YOUR_DATABASE.YOUR_SCHEMA.MY_TABLE;
 
+build image: docker build -t docker-love-bhagya-backend .
+docker image name: docker.io/roshancodeitup/love-bhagya:latest

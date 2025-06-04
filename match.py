@@ -1,6 +1,3 @@
-
-from flask import Flask, request, jsonify
-from werkzeug.utils import secure_filename
 import os
 import json
 import time
@@ -12,8 +9,9 @@ from uuid import uuid4
 from PIL import Image
 from geopy.geocoders import Nominatim
 from absl import logging as log 
-from kundal_score import Kundali
-from config import config
+from kundali_score import Kundali
+from KundaliMatch.config import config
+from flask import Flask, request, jsonify
 
 load_dotenv()
 
@@ -215,7 +213,7 @@ def login():
     )
     
     cursor = conn.cursor()
-    select_sql = f"SELECT UID, CREATED, LOGIN FROM {config.MATCHING_TABLE} WHERE EMAIL = {email}"
+    select_sql = f"SELECT UID, CREATED, LOGIN FROM {config.PROFILE_TABLE} WHERE EMAIL = {email}"
     cursor.execute(select_sql)
 
     # GET LAST LOGIN AND UID OF USER
@@ -311,16 +309,9 @@ def action():
     )
     cursor_matching = conn_matching.cursor()
 
-    if recommendation['UID1'] == uid:
-        uid1 = uid
-        uid2 = recommendation['UID2']
-    else:
-        uid2 = uid
-        uid1 = recommendation['UID1']
-
     if action == 'SKIP':
 
-        delete_sql = f"DELETE FROM {config.MATCHING_TABLE} WHERE UID1 = {uid1} AND UID2 = {uid2}"
+        delete_sql = f"DELETE FROM {config.MATCHING_TABLE} WHERE UID1 = {recommendation['UID1']} AND UID2 = {recommendation['UID2']}"
         cursor_matching.execute(delete_sql)
         cursor_matching.commit()
 
