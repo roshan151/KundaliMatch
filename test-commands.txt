@@ -7,7 +7,7 @@ curl -X POST http://localhost:8080/account:create \
   -F "images=/Users/roshantiwari/src/KundaliMatch/srk-2.png"
 
 curl -X POST http://localhost:8080/account:login \
-  -F 'metadata={"email": "example@example.com"}'
+  -F 'metadata={"email": "jhon@example.com"}'
 
 curl -X POST http://localhost:8080/account:action \
   -F 'metadata={
@@ -26,3 +26,6 @@ curl -X POST http://localhost:8080/account:action \
       "UPDATED": "24-04-96 10:00:00"
     }
   }'
+
+  curl -X POST http://localhost:8080/get:profile \
+  -F 'metadata={"uid" : "b43ce7a0-6214-4c5f-9f7a-76324d24ff07"}'
