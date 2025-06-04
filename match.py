@@ -1,6 +1,7 @@
 import os
 import json
 import time
+import random
 from dotenv import load_dotenv
 import snowflake.connector
 import boto3
@@ -9,8 +10,8 @@ from uuid import uuid4
 from PIL import Image
 from geopy.geocoders import Nominatim
 from absl import logging as log 
-from kundali_score import Kundali
-from KundaliMatch.config import config
+#from kundali_score import Kundali
+from config import config
 from flask import Flask, request, jsonify
 
 load_dotenv()
@@ -66,10 +67,13 @@ def get_lat_long(address):
         return location.latitude, location.longitude
     else:
         return None, None
+
+def get_kundali_score():
+    return random.uniform(0.1, 0.9)
     
 # TODO- Build personal scoring logic using hobbies
 def get_personal_score(hobbies, row):
-    return 0.5
+    return random.uniform(0.1, 0.9)
 
 app = Flask(__name__)
 @app.route('/account:create', methods=['POST'])
@@ -153,8 +157,9 @@ def create():
     scores = []
 
     for row in results:
-        kundali_obj = Kundali(dob, row['DOB'], tob, row["TOB"], lat, row["LAT"], long, row["LONG"])
-        kundali_score = kundali_obj.get_guna_score()/config.TOTAL_GUN
+        #kundali_obj = Kundali(dob, row['DOB'], tob, row["TOB"], lat, row["LAT"], long, row["LONG"])
+        #kundali_score = kundali_obj.get_guna_score()/config.TOTAL_GUN
+        kundali_score = get_kundali_score() # Placeholder
         personal_score = get_personal_score(hobbies, row)
         matched_uids.append(row['UID'])
         score = kundali_score*config.KUNDALI_WEIGHT + personal_score*config.PERSONAL_WEIGHT
@@ -333,7 +338,7 @@ def action():
     return None, None
 
 # Before making the create:account call, UI should make verify:email call to ensure emails are unique 
-@app.route('/verify:email', method=['POST'])
+@app.route('/verify:email', methods=['POST'])
 def verify_email():
     
     metadata = request.form.get('metadata')

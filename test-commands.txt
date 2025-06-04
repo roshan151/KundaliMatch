@@ -1,0 +1,28 @@
+curl -X POST http://localhost:8080/verify:email \
+  -F 'metadata={"email": "example@example.com"}'
+
+curl -X POST http://localhost:8080/account:create \
+  -F 'metadata={"name":"John Doe","phone":"1234567890","email":"john@example.com","city":"New York","country":"USA","dob":"1990-01-01","tob":"12:00","gender":"male","hobbies":["reading","traveling"]}' \
+  -F "images=/Users/roshantiwari/src/KundaliMatch/test-images/srk-1.png" \
+  -F "images=/Users/roshantiwari/src/KundaliMatch/srk-2.png"
+
+curl -X POST http://localhost:8080/account:login \
+  -F 'metadata={"email": "example@example.com"}'
+
+curl -X POST http://localhost:8080/account:action \
+  -F 'metadata={
+    "action" : "WHATSAPP2",
+    "uid": "user123",
+    "recommendation": {
+      "WHATSAPP1": "TRUE",
+      "WHATSAPP1": "FALSE",
+      "INSTA1": "FALSE",
+      "INSTA1": "FALSE",
+      "SNAP1": "FALSE",
+      "SNAP2": "FALSE",
+      "UID1": "DKBDSJHVCDSS",
+      "UID2": "DDVNVJNVDFVNFK",
+      "SCORE": "0.9",
+      "UPDATED": "24-04-96 10:00:00"
+    }
+  }'
