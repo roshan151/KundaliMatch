@@ -120,10 +120,185 @@ Design a user-friendly web frontend for a dating/matching platform that communic
 - Handle errors gracefully
 - Store user UID recieved for a session 
 
+##################################################################################################################################################################################################
+
+# Details required by fronted response
 ---
+Here are the details of all the API calls the frontend is making to your Python backend:
 
-### Summary:
+1. Email Verification
+Endpoint: POST {config.URL}/verify:email Purpose: Check if email is already registered Input:
 
-Provide a clean, intuitive interface that guides users through registration, email verification, login, and browsing matches. Make sure the frontend correctly formats POST requests to match backend expectations, including JSON metadata and image uploads, and handles the responses to populate the UI accordingly.
+Method: POST
+Content-Type: multipart/form-data
+Body: FormData with email field
+Expected Output:
 
----
+Boolean value (true/false)
+true = email is available for registration
+false = email already exists
+2. Account Creation
+Endpoint: POST {config.URL}/account:create Purpose: Create a new user account Input:
+
+Method: POST
+Content-Type: multipart/form-data
+Body: FormData containing:
+metadata: JSON string with user details:
+
+{
+  "name": "string",
+  "phone": "string", 
+  "email": "string",
+  "city": "string",
+  "country": "string",
+  "dob": "yyyy-MM-dd",
+  "tob": "HH:mm",
+  "gender": "string",
+  "hobbies": "string"
+}
+images: Multiple image files (up to config.MAX_IMAGES)
+Expected Output:
+
+
+{
+  "UID": "uuid-string"
+}
+3. User Login
+Endpoint: POST {config.URL}/account:login Purpose: Authenticate user and get their data Input:
+
+Method: POST
+Content-Type: multipart/form-data
+Body: FormData with:
+metadata: JSON string containing:
+
+{
+  "email": "string"
+}
+Expected Output:
+
+
+{
+  "UID": "uuid-string",
+  "matches": [{"UID": "uuid1"}, {"UID": "uuid2"}],
+  "recommendations": [{"UID": "uuid3"}, {"UID": "uuid4"}],
+  "notifications": [{"UID": "uuid5"}, {"UID": "uuid6"}],
+  "awaiting": [{"UID": "uuid7"}, {"UID": "uuid8"}]
+}
+4. Get User Details
+Endpoint: POST {config.URL}/get:{uid} Purpose: Fetch detailed information for a specific user Input:
+
+Method: POST
+No body required
+Expected Output:
+
+
+{
+  "UID": "uuid-string",
+  "name": "string",
+  "email": "string",
+  "city": "string", 
+  "country": "string",
+  "age": "number",
+  "gender": "string",
+  "hobbies": "string",
+  "profilePicture": "url-string"
+}
+Configuration
+The base URL is configured in src/config/api.ts:
+
+
+export const config = {
+  URL: 'http://localhost:8000',
+  MAX_IMAGES: 5
+};
+All requests use FormData format as expected by your Python backend, and the frontend handles the responses to populate the UI accordingly.
+
+Here are the details of all the API calls the frontend is making to your Python backend:
+
+1. Email Verification
+Endpoint: POST {config.URL}/verify:email Purpose: Check if email is already registered Input:
+
+Method: POST
+Content-Type: multipart/form-data
+Body: FormData with email field
+Expected Output:
+
+Boolean value (true/false)
+true = email is available for registration
+false = email already exists
+2. Account Creation
+Endpoint: POST {config.URL}/account:create Purpose: Create a new user account Input:
+
+Method: POST
+Content-Type: multipart/form-data
+Body: FormData containing:
+metadata: JSON string with user details:
+
+{
+  "name": "string",
+  "phone": "string", 
+  "email": "string",
+  "city": "string",
+  "country": "string",
+  "dob": "yyyy-MM-dd",
+  "tob": "HH:mm",
+  "gender": "string",
+  "hobbies": "string"
+}
+images: Multiple image files (up to config.MAX_IMAGES)
+Expected Output:
+
+
+{
+  "UID": "uuid-string"
+}
+3. User Login
+Endpoint: POST {config.URL}/account:login Purpose: Authenticate user and get their data Input:
+
+Method: POST
+Content-Type: multipart/form-data
+Body: FormData with:
+metadata: JSON string containing:
+
+{
+  "email": "string"
+}
+Expected Output:
+
+
+{
+  "UID": "uuid-string",
+  "matches": [{"UID": "uuid1"}, {"UID": "uuid2"}],
+  "recommendations": [{"UID": "uuid3"}, {"UID": "uuid4"}],
+  "notifications": [{"UID": "uuid5"}, {"UID": "uuid6"}],
+  "awaiting": [{"UID": "uuid7"}, {"UID": "uuid8"}]
+}
+4. Get User Details
+Endpoint: POST {config.URL}/get:{uid} Purpose: Fetch detailed information for a specific user Input:
+
+Method: POST
+No body required
+Expected Output:
+
+
+{
+  "UID": "uuid-string",
+  "name": "string",
+  "email": "string",
+  "city": "string", 
+  "country": "string",
+  "age": "number",
+  "gender": "string",
+  "hobbies": "string",
+  "profilePicture": "url-string"
+}
+Configuration
+The base URL is configured in src/config/api.ts:
+
+
+export const config = {
+  URL: 'http://localhost:8000',
+  MAX_IMAGES: 5
+};
+All requests use FormData format as expected by your Python backend, and the frontend handles the responses to populate the UI accordingly.
+
