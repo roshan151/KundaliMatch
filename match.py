@@ -3,7 +3,7 @@ import json
 import time
 import random
 from dotenv import load_dotenv
-import snowflake.connector
+
 import boto3
 from botocore.exceptions import NoCredentialsError
 from uuid import uuid4
@@ -13,6 +13,7 @@ from absl import logging as log
 #from kundali_score import Kundali
 from config import config
 from flask import Flask, request, jsonify
+from snowflake_utils import SnowConnect
 
 load_dotenv()
 log.set_verbosity(log.INFO)
@@ -111,16 +112,8 @@ def create():
         images = []
 
     # Setup snowflake
-    conn = snowflake.connector.connect(
-        user=os.getenv('SNOWFLAKE_USERNAME'),
-        password=os.getenv('SNOWFLAKE_SECRET'),
-        account=os.getenv('SNOWFLAKE_ACCOUNT_ID'),
-        warehouse=config.PROFILE_TABLE_WAREHOUSE,
-        database=config.PROFILE_TABLE_DATABASE,
-        schema=config.PROFILE_TABLE_SCHEMA
-    )
+    profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
     
-    cursor = conn.cursor()
 
     insert_sql = f"INSERT INTO {config.PROFILE_TABLE} (UID, NAME, PHONE, EMAIL, CITY, COUNTRY, D0B, TOB, GENDER, HOBBIES, LAT, LONG, IMAGES, CREATED, LOGIN) VALUES (%s, %s, %s, %s, %s, %s, PARSE_JSON(%s), %s, %s, PARSE_JSON(%s), %s)"
     uid= uuid4()
@@ -135,11 +128,11 @@ def create():
     hobbies = json_data.get('hobbies', [])
     timestamp = time.time()
     lat, long = get_lat_long(f'{city}, {country}')
-    cursor.execute(insert_sql, (uid, name, phone, email, city, country, dob, tob, gender, hobbies, lat, long, images, timestamp, None))
 
-    conn.commit()
-    cursor.close()
-    conn.close()
+    profile_connect.cursor.execute(insert_sql, (uid, name, phone, email, city, country, dob, tob, gender, hobbies, lat, long, images, timestamp, None))
+
+    profile_connect.conn.commit()
+    
 
     # RECOMMENDATION LOGIC
     # Fetch all rows of opposite gender:
@@ -149,10 +142,11 @@ def create():
         fetch = 'male'
     
     select_sql = f"SELECT dob, tob, lat, long, hobbies FROM {config.PROFILE_TABLE} WHERE GENDER = '{fetch}'"
-    cursor.execute(select_sql)
+    profile_connect.cursor.execute(select_sql)
 
     # Fetch all results
-    results = cursor.fetchall()
+    results = profile_connect.cursor.fetchall()
+    profile_connect.close()
 
     matched_uids = []
     scores = []
@@ -170,25 +164,16 @@ def create():
     sorted_pairs = sorted(zip(matched_uids, scores), key=lambda x: x[1], reverse=True)
     recommendations = sorted_pairs[:config.MAX_MATCHES]
 
-    conn_matching= snowflake.connector.connect(
-        user=os.getenv('USERNAME'),
-        password=os.getenv('PASSWORD'),
-        account=os.getenv('ACCOUNT_ID'),
-        warehouse=config.MATCHING_TABLE_WAREHOUSE,
-        database=config.MATCHING_TABLE_DATABASE,
-        schema=config.MATCHING_TABLE_SCHEMA
-    )
+    matching_connect  = SnowConnect(config.MATCHING_TABLE_WAREHOUSE, config.MATCHING_TABLE_DATABASE, config.MATCHING_TABLE_SCHEMA)
     # Post recommendations to matching table
 
-    cursor_matching = conn_matching.cursor()
     timestamp = time.time()
     insert_sql_matching = f"INSERT INTO {config.MATCHING_TABLE} (UID1, UID2, SCORE, CREATED, UPDATED, WHATSAPP1, WHATSAPP2, INSTA1, INSTA2, SNAP1, SNAP2) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)"
     for item in recommendations:
-        cursor.execute(insert_sql_matching, (uid, item[0], item[1], timestamp, timestamp, False, False, False, False, False, False ) )
+        matching_connect.execute(insert_sql_matching, (uid, item[0], item[1], timestamp, timestamp, False, False, False, False, False, False ) )
 
-    conn_matching.commit()
-    cursor_matching.close()
-    conn_matching.close()
+    matching_connect.conn.commit()
+    matching_connect.close()
 
     return {'UID' : uid}, None
 
@@ -209,21 +194,13 @@ def login():
 
     current_time = time.time()
 
-    conn = snowflake.connector.connect(
-        user=os.getenv('SNOWFLAKE_USERNAME'),
-        password=os.getenv('SNOWFLAKE_SECRET'),
-        account=os.getenv('SNOWFLAKE_ACCOUNT_ID'),
-        warehouse=config.PROFILE_TABLE_WAREHOUSE,
-        database=config.PROFILE_TABLE_DATABASE,
-        schema=config.PROFILE_TABLE_SCHEMA
-        )
+    profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
     
-    cursor = conn.cursor()
     select_sql = f"SELECT UID, CREATED, LOGIN FROM {config.PROFILE_TABLE} WHERE EMAIL = '{email}'"
-    cursor.execute(select_sql)
+    profile_connect.cursor.execute(select_sql)
 
     # GET LAST LOGIN AND UID OF USER
-    results = cursor.fetchall()
+    results = profile_connect.cursor.fetchall()
     if len(results)>1:
         log.warning(f'Email {email} is not unique')
         result = results[-1]
@@ -237,25 +214,17 @@ def login():
     if last_login is None:
         last_login = created
     
-    conn.commit()
-    cursor.close()
-    conn.close()
+    
+    update_sql = f"UPDATE {config.PROFILE_TABLE} SET LOGIN = '{current_time}' WHERE UID = '{uid}'"
+    profile_connect.cursor.execute(update_sql)
 
-    update_sql = f"UPDATE {config.MATCHING_TABLE} SET LOGIN = '{current_time}' WHERE UID = '{uid}'"
-    cursor.execute(update_sql)
+    profile_connect.conn.commit()
+    profile_connect.close()
 
-    # Fetch all data from existing recommendations
-    conn_matching= snowflake.connector.connect(
-        user=os.getenv('USERNAME'),
-        password=os.getenv('PASSWORD'),
-        account=os.getenv('ACCOUNT_ID'),
-        warehouse=config.MATCHING_TABLE_WAREHOUSE,
-        database=config.MATCHING_TABLE_DATABASE,
-        schema=config.MATCHING_TABLE_SCHEMA
-    )
+    matching_connect  = SnowConnect(config.MATCHING_TABLE_WAREHOUSE, config.MATCHING_TABLE_DATABASE, config.MATCHING_TABLE_SCHEMA)
 
     sql_fetch = f"SELECT * FROM {config.MATCHING_TABLE} WHERE UID1 = '{uid}' OR UID2 = '{uid}'"
-    cursor_matching = conn_matching.cursor()
+    cursor_matching = matching_connect.conn.cursor()
 
     cursor_matching.execute(sql_fetch)
     results = cursor_matching.fetchall()
@@ -274,9 +243,9 @@ def login():
             else:
                 awaiting.append(result)
     
-    conn_matching.commit()
-    cursor_matching.close()
-    conn_matching.close()
+    matching_connect.conn.commit()
+    matching_connect.close()
+    
 
     return {'UID' : uid, 'RECOMMENDATIONS' : recommendations, 'NOTIFICATIONS' : notifications, 'MATCHED' : matched, 'AWAITING' : awaiting}, None
     
@@ -305,36 +274,27 @@ def action():
     if action is None:
         return jsonify({"error": "Missing 'action' field"}), 400
     
-    conn_matching= snowflake.connector.connect(
-        user=os.getenv('USERNAME'),
-        password=os.getenv('PASSWORD'),
-        account=os.getenv('ACCOUNT_ID'),
-        warehouse=config.MATCHING_TABLE_WAREHOUSE,
-        database=config.MATCHING_TABLE_DATABASE,
-        schema=config.MATCHING_TABLE_SCHEMA
-    )
-    cursor_matching = conn_matching.cursor()
+    matching_connect = SnowConnect(config.MATCHING_TABLE_WAREHOUSE, config.MATCHING_TABLE_DATABASE, config.MATCHING_TABLE_SCHEMA)
 
     if action == 'SKIP':
 
         delete_sql = f"DELETE FROM {config.MATCHING_TABLE} WHERE UID1 = {recommendation['UID1']} AND UID2 = {recommendation['UID2']}"
-        cursor_matching.execute(delete_sql)
-        cursor_matching.commit()
+        matching_connect.cursor.execute(delete_sql)
+        #matching_connect.cursor.commit()
 
     # Right now we do not provide option to retract your response
     elif action in ['WHATSAPP1', 'WHATSAPP2', 'INSTA1', 'INSTA2', 'SNAP1', 'SNAP2']:
         update_sql = f"UPDATE {config.MATCHING_TABLE} SET {action} = {current_time} WHERE UID = {uid}"
         recommendation[action] = True
-        cursor_matching.execute(update_sql)
-        cursor_matching.commit()
+        matching_connect.cursor.execute(update_sql)
+        #matching_connect.cursor.commit()
 
     else:
         log.error(f'Unrecognized action: {action}')
         return jsonify({"error": "Missing 'action' field"}), 400
 
-    conn_matching.commit()
-    cursor_matching.close()
-    conn_matching.close()
+    matching_connect.conn.commit()
+    matching_connect.close()
 
     return None, None
 
@@ -356,23 +316,14 @@ def verify_email():
     print(f"Username: {os.getenv('SNOWFLAKE_USERNAME')}, Account_id: {os.getenv('SNOWFLAKE_ACCOUNT_ID')}")
     log.info(f"Username: {os.getenv('SNOWFLAKE_USERNAME')}, Account_id: {os.getenv('SNOWFLAKE_ACCOUNT_ID')}")
 
-    conn = snowflake.connector.connect(
-        user=os.getenv('SNOWFLAKE_USERNAME'),
-        password=os.getenv('SNOWFLAKE_PASSWORD'),
-        account=os.getenv('SNOWFLAKE_ACCOUNT_ID'),
-        warehouse=config.PROFILE_TABLE_WAREHOUSE,
-        database=config.PROFILE_TABLE_DATABASE,
-        schema=config.PROFILE_TABLE_SCHEMA
-        )
-    cursor = conn.cursor()
+    profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
 
     sql_fetch = f"SELECT * FROM {config.PROFILE_TABLE} WHERE EMAIL='{email}'"
-    cursor.execute(sql_fetch)
-    results = cursor.fetchall()
+    profile_connect.cursor.execute(sql_fetch)
+    results = profile_connect.cursor.fetchall()
 
-    conn.commit()
-    cursor.close()
-    conn.close()
+    profile_connect.conn.commit()
+    profile_connect.close()
 
     if len(results) > 0:
         return {'verify' : False}
