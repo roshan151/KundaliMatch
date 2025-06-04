@@ -19,3 +19,5 @@ docker build -t docker-love-bhagya-backend .
 
 Docker run:
 docker run --rm -p 8080:8080 docker.io/library/docker-love-bhagya-backend:latest
+
+Pushed Docker imag: docker.io/roshancodeitup/love-bhagya:latest
