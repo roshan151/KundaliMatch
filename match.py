@@ -19,20 +19,21 @@ load_dotenv()
 log.set_verbosity(log.INFO)
 
 # Configure AWS (automatically uses ~/.aws/credentials or env vars)
-s3 = boto3.client('s3')
+s3 = boto3.client('s3',
+    aws_access_key_id=os.getenv('S3_ACCESS_ID'),
+    aws_secret_access_key=os.getenv('S3_ACCESS_KEY'))
 
 BUCKET_NAME = os.getenv('BUCKET')
 REGION = os.getenv("REGION")  # e.g., 'us-east-1'
 
 CURRENT_DIR = os.getcwd()
 
-def upload_image_to_s3(file_path, bucket_name=BUCKET_NAME):
+def upload_image_to_s3(file_path, filename, bucket_name=BUCKET_NAME):
     try:
         # TODO replace with snowflake {unique key}-image1
-        filename = f"{uuid4().hex}_{os.path.basename(file_path)}"
 
         # Upload file to S3
-        s3.upload_file(file_path, bucket_name, filename, ExtraArgs={'ACL': 'public-read'})
+        s3.upload_file(file_path, bucket_name, filename)
 
         # Construct public URL
         url = f"https://{bucket_name}.s3.{REGION}.amazonaws.com/{filename}"
@@ -45,7 +46,7 @@ def upload_image_to_s3(file_path, bucket_name=BUCKET_NAME):
         log.info(f"Upload failed: {e}")
         return None
 
-def process_image(image_path):
+def process_image(image_path, png_filename):
     try:
         with Image.open(image_path) as img:
             img_format = img.format.lower()
@@ -54,7 +55,6 @@ def process_image(image_path):
                 return None
 
             # Convert to PNG
-            png_filename = f"{uuid4().hex}.png"
             png_path = os.path.join(CURRENT_DIR, png_filename)
             img.convert("RGBA").save(png_path, "PNG")
             return png_path
@@ -93,23 +93,6 @@ def create():
     # Recieve encoded images
     profile_images = request.files.getlist("images")
 
-    # Get S3 url for image files
-    if profile_images:
-        png_paths = []
-        for image in profile_images[:config.MAX_IMAGES]:
-            path = process_image(image)
-
-            if path is not None:
-                url = upload_image_to_s3(path)
-                images.append(url)
-                png_paths.append(path)
-        
-        # Remove local images
-        for path in png_paths:
-            os.remove(path)
-
-    else:
-        images = []
 
     # Setup snowflake
     profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
@@ -128,6 +111,24 @@ def create():
     hobbies = json_data.get('hobbies', [])
     timestamp = time.time()
     lat, long = get_lat_long(f'{city}, {country}')
+
+    # Get S3 url for image files
+    if profile_images:
+        png_paths = []
+        for idx, image in enumerate(profile_images[:config.MAX_IMAGES]):
+            path = process_image(image, f'image-{idx}.png')
+
+            if path is not None:
+                url = upload_image_to_s3(path, f'profile_pictures/{uid}/image-{idx}.png')
+                images.append(url)
+                png_paths.append(path)
+        
+        # Remove local images
+        for path in png_paths:
+            os.remove(path)
+
+    else:
+        images = []
 
     profile_connect.cursor.execute(insert_sql, (uid, name, phone, email, city, country, dob, tob, gender, hobbies, lat, long, images, timestamp, None))
 

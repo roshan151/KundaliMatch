@@ -14,6 +14,8 @@ SELECT * FROM YOUR_DATABASE.YOUR_SCHEMA.MY_TABLE;
 build image: docker build -t docker-love-bhagya-backend .
 docker image name: docker.io/roshancodeitup/love-bhagya:latest
 
-Snowflake error:
-Could not connect to Snowflake backend after 2 attempt(s).Aborting
-Verify that the hostnames and port numbers in SYSTEM$ALLOWLIST are added to your firewall's allowed list.
+Docker Build:
+docker build -t docker-love-bhagya-backend .
+
+Docker run:
+docker run --rm -p 8080:8080 docker.io/library/docker-love-bhagya-backend:latest
