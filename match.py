@@ -219,7 +219,7 @@ def login():
         )
     
     cursor = conn.cursor()
-    select_sql = f"SELECT UID, CREATED, LOGIN FROM {config.PROFILE_TABLE} WHERE EMAIL = {email}"
+    select_sql = f"SELECT UID, CREATED, LOGIN FROM {config.PROFILE_TABLE} WHERE EMAIL = '{email}'"
     cursor.execute(select_sql)
 
     # GET LAST LOGIN AND UID OF USER
@@ -241,7 +241,7 @@ def login():
     cursor.close()
     conn.close()
 
-    update_sql = f"UPDATE {config.MATCHING_TABLE} SET LOGIN = {current_time} WHERE UID = {uid}"
+    update_sql = f"UPDATE {config.MATCHING_TABLE} SET LOGIN = '{current_time}' WHERE UID = '{uid}'"
     cursor.execute(update_sql)
 
     # Fetch all data from existing recommendations
@@ -254,7 +254,7 @@ def login():
         schema=config.MATCHING_TABLE_SCHEMA
     )
 
-    sql_fetch = f"SELECT * FROM {config.MATCHING_TABLE} WHERE UID1 = {uid} OR UID2 = {uid}"
+    sql_fetch = f"SELECT * FROM {config.MATCHING_TABLE} WHERE UID1 = '{uid}' OR UID2 = '{uid}'"
     cursor_matching = conn_matching.cursor()
 
     cursor_matching.execute(sql_fetch)
@@ -358,7 +358,7 @@ def verify_email():
 
     conn = snowflake.connector.connect(
         user=os.getenv('SNOWFLAKE_USERNAME'),
-        password=os.getenv('SNOWFLAKE_SECRET'),
+        password=os.getenv('SNOWFLAKE_PASSWORD'),
         account=os.getenv('SNOWFLAKE_ACCOUNT_ID'),
         warehouse=config.PROFILE_TABLE_WAREHOUSE,
         database=config.PROFILE_TABLE_DATABASE,
@@ -366,7 +366,7 @@ def verify_email():
         )
     cursor = conn.cursor()
 
-    sql_fetch = f'SELECT * FROM {config.PROFILE_TABLE} WHERE EMAIL={email}'
+    sql_fetch = f"SELECT * FROM {config.PROFILE_TABLE} WHERE EMAIL='{email}'"
     cursor.execute(sql_fetch)
     results = cursor.fetchall()
 
