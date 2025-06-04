@@ -15,6 +15,7 @@ from config import config
 from flask import Flask, request, jsonify
 
 load_dotenv()
+log.set_verbosity(log.INFO)
 
 # Configure AWS (automatically uses ~/.aws/credentials or env vars)
 s3 = boto3.client('s3')
@@ -111,9 +112,9 @@ def create():
 
     # Setup snowflake
     conn = snowflake.connector.connect(
-        user=os.getenv('USERNAME'),
-        password=os.getenv('PASSWORD'),
-        account=os.getenv('ACCOUNT_ID'),
+        user=os.getenv('SNOWFLAKE_USERNAME'),
+        password=os.getenv('SNOWFLAKE_SECRET'),
+        account=os.getenv('SNOWFLAKE_ACCOUNT_ID'),
         warehouse=config.PROFILE_TABLE_WAREHOUSE,
         database=config.PROFILE_TABLE_DATABASE,
         schema=config.PROFILE_TABLE_SCHEMA
@@ -209,13 +210,13 @@ def login():
     current_time = time.time()
 
     conn = snowflake.connector.connect(
-        user=os.getenv('USERNAME'),
-        password=os.getenv('PASSWORD'),
-        account=os.getenv('ACCOUNT_ID'),
+        user=os.getenv('SNOWFLAKE_USERNAME'),
+        password=os.getenv('SNOWFLAKE_SECRET'),
+        account=os.getenv('SNOWFLAKE_ACCOUNT_ID'),
         warehouse=config.PROFILE_TABLE_WAREHOUSE,
         database=config.PROFILE_TABLE_DATABASE,
         schema=config.PROFILE_TABLE_SCHEMA
-    )
+        )
     
     cursor = conn.cursor()
     select_sql = f"SELECT UID, CREATED, LOGIN FROM {config.PROFILE_TABLE} WHERE EMAIL = {email}"
@@ -352,15 +353,17 @@ def verify_email():
     email = json_data.get('email', None)
     if email is None:
         return jsonify({"error": "Missing 'email' field"}), 400
-    
+    print(f"Username: {os.getenv('SNOWFLAKE_USERNAME')}, Account_id: {os.getenv('SNOWFLAKE_ACCOUNT_ID')}")
+    log.info(f"Username: {os.getenv('SNOWFLAKE_USERNAME')}, Account_id: {os.getenv('SNOWFLAKE_ACCOUNT_ID')}")
+
     conn = snowflake.connector.connect(
-        user=os.getenv('USERNAME'),
-        password=os.getenv('PASSWORD'),
-        account=os.getenv('ACCOUNT_ID'),
+        user=os.getenv('SNOWFLAKE_USERNAME'),
+        password=os.getenv('SNOWFLAKE_SECRET'),
+        account=os.getenv('SNOWFLAKE_ACCOUNT_ID'),
         warehouse=config.PROFILE_TABLE_WAREHOUSE,
         database=config.PROFILE_TABLE_DATABASE,
         schema=config.PROFILE_TABLE_SCHEMA
-    )
+        )
     cursor = conn.cursor()
 
     sql_fetch = f'SELECT * FROM {config.PROFILE_TABLE} WHERE EMAIL={email}'
