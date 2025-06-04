@@ -64,7 +64,7 @@ def process_image(image_path, png_filename):
 
 def get_lat_long(address):
     geolocator = Nominatim(user_agent="geo_locator")
-    location = geolocator.geocode(address)
+    location = geolocator.geocode(address, timeout=config.MAX_GEOCODE_TIMEOUT)
     if location:
         return location.latitude, location.longitude
     else:
@@ -98,19 +98,20 @@ def create():
     profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
     
 
-    insert_sql = f"INSERT INTO {config.PROFILE_TABLE} (UID, NAME, PHONE, EMAIL, CITY, COUNTRY, D0B, TOB, GENDER, HOBBIES, LAT, LONG, IMAGES, CREATED, LOGIN) VALUES (%s, %s, %s, %s, %s, %s, PARSE_JSON(%s), %s, %s, PARSE_JSON(%s), %s)"
-    uid= uuid4()
+    insert_sql = f"INSERT INTO {config.PROFILE_TABLE} (UID, NAME, PHONE, EMAIL, CITY, COUNTRY, D0B, TOB, GENDER, HOBBIES, LAT, LONG, IMAGES, CREATED, LOGIN) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, PARSE_JSON(%s), %s, %s, PARSE_JSON(%s), %s, %s)"
+    uid= str(uuid4())
     name =json_data['name'].lower() 
-    phone = json_data['phone']
+    phone = str(json_data['phone'])
     email = json_data['email'].lower()
     city = json_data['city'].lower() 
     country = json_data['country'].lower() 
-    dob = json_data['dob']
-    tob = json_data['tob'] # Time of birth
+    dob = str(json_data['dob'])
+    tob = str(json_data['tob']) # Time of birth
     gender = json_data['gender'].lower()
     hobbies = json_data.get('hobbies', [])
-    timestamp = time.time()
+    timestamp = str(time.time())
     lat, long = get_lat_long(f'{city}, {country}')
+    lat, long = str(lat), str(long)
 
     # Get S3 url for image files
     if profile_images:
@@ -121,7 +122,7 @@ def create():
             if path is not None:
                 url = upload_image_to_s3(path, f'profile_pictures/{uid}/image-{idx}.png')
                 images.append(url)
-                png_paths.append(path)
+                png_paths.append(str(path))
         
         # Remove local images
         for path in png_paths:
@@ -130,8 +131,10 @@ def create():
     else:
         images = []
 
-    profile_connect.cursor.execute(insert_sql, (uid, name, phone, email, city, country, dob, tob, gender, hobbies, lat, long, images, timestamp, None))
+    for idx, i in enumerate([uid, name, phone, email, city, country, dob, tob, gender, hobbies, lat, long, images, timestamp, '']):
+        log.info(f'{i}:{type(i)}')
 
+    profile_connect.cursor.execute(insert_sql, (uid, name, phone, email, city, country, dob, tob, gender, hobbies, lat, long, images, timestamp, ''))
     profile_connect.conn.commit()
     
 
