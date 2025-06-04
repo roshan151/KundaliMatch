@@ -1,0 +1,129 @@
+**Prompt for Creating a Frontend Web App to Interface with Python Backend**
+
+---
+
+**Objective:**
+
+Design a user-friendly web frontend for a dating/matching platform that communicates with your Python backend via POST requests. The frontend should support account creation, login, and display of user-specific data across four tabs: matches, recommendations, notifications, and awaiting response.
+
+---
+
+### Key Features & Requirements:
+
+1. **User Account Creation:**
+   - A registration form that collects:
+     - **Personal Details:**
+       - Name (text)
+       - Phone (text)
+       - Email (text)
+       - City (text)
+       - Country (text)
+       - Date of Birth (DOB) (date picker)
+       - Time of Birth (TOB) (time picker)
+       - Gender (dropdown or radio buttons)
+       - Hobbies (multi-select or comma-separated input)
+     - **Profile Picture Upload:**
+       - Support multiple images (up to `config.MAX_IMAGES`)
+       - Images should be uploaded via file input
+
+   - On submission:
+     - Send a POST request to `{config.URL}/account:create`
+     - Include form data with personal details
+     - Attach images as multipart/form-data
+     - Metadata (JSON string) should include all personal details
+
+2. **Email Verification (Pre-Registration):**
+   - When user inputs email:
+     - Make a POST request to `{config.URL}/verify:email` to check if email is unique
+     - Display validation message accordingly
+
+3. **User Login:**
+   - Login form with:
+     - Email
+     - Password (if applicable; note your backend code does not currently handle passwords, so ensure login is based on email only or extend backend as needed)
+   - On login:
+     - POST to `{config.URL}/account:login` with email
+     - Backend responds with user UID and four lists of matches: matches, recommendations, notifications, awaiting response
+     - UI should populate these lists under four separate tabs
+     - Each list contains a dict that contains uids of other user `result[0]['UID']`. Retrive all data for this UID using `{config.URL}/get:{uid} command  
+    - Then populate the details of these users using retrieved info
+
+4. **Display Data in Tabs:**
+   - **Matches:** List of matched users
+   - **Recommendations:** List of recommended users based on matching algorithm
+   - **Notifications:** List of notifications relevant to the user
+   - **Awaiting Response:** List of users awaiting response from the current user
+
+   *Each item should display relevant info:*
+   - Name
+   - Profile picture
+   - Additional details (if available)
+
+5. **Communication with Backend:**
+   - Use POST requests with `Content-Type: application/x-www-form-urlencoded` or `multipart/form-data` as appropriate
+   - Send data in the expected structure (e.g., JSON string in 'metadata' field)
+   - Handle responses:
+     - For account creation, expect `{ "UID": ... }`
+     - For login, expect lists of user data
+
+6. **Error Handling & Validation:**
+   - Handle validation errors (e.g., email exists, missing fields)
+   - Show user-friendly messages
+
+---
+
+### Technical Details & Inputs/Outputs:
+
+**Create Account (`/account:create`)**
+- **Request:**
+  - Method: POST
+  - Headers: `Content-Type: multipart/form-data`
+  - Form Data:
+    - `metadata`: JSON string with keys:
+      - name, phone, email, city, country, dob, tob, gender, hobbies
+    - `images`: one or more image files
+- **Backend expects:**
+  - JSON with user details
+  - Images (up to `config.MAX_IMAGES`) processed and uploaded to S3
+- **Response:**
+  - JSON with `UID` of created user, e.g., `{ "UID": "uuid" }`
+
+---
+
+**Verify Email (`/verify:email`)**
+- **Request:**
+  - Method: POST
+  - Body: JSON with multipart form data
+- **Response:**
+  - Boolean - If True proceed further for account creation
+
+---
+
+**Login (`/account:login`)**
+- **Request:**
+  - Method: POST
+  - Body:
+    - `metadata`: JSON string with email
+- **Response:**
+  - JSON containing four lists: matches, recommendations, notifications, awaiting
+  - Each list contains user info objects:
+    - UID, name
+    
+
+---
+
+### UI/UX Suggestions:
+
+- Use a modern framework (React, Vue, or plain HTML/CSS/JavaScript)
+- Ensure forms are validated before submission
+- Show loading indicators during requests
+- Handle errors gracefully
+- Store user UID recieved for a session 
+
+---
+
+### Summary:
+
+Provide a clean, intuitive interface that guides users through registration, email verification, login, and browsing matches. Make sure the frontend correctly formats POST requests to match backend expectations, including JSON metadata and image uploads, and handles the responses to populate the UI accordingly.
+
+---

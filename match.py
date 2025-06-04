@@ -75,7 +75,7 @@ def get_personal_score(hobbies, row):
 
 app = Flask(__name__)
 @app.route('/account:create', methods=['POST'])
-def upload():
+def create():
     # Recieve multipart request
     # Get JSON part from form data
     metadata = request.form.get('metadata')
@@ -119,7 +119,7 @@ def upload():
     
     cursor = conn.cursor()
 
-    insert_sql = f"INSERT INTO {config.PROFILE_TABLE} (UID, NAME, PHONE, EMAIL, CITY, COUNTRY, D0B, TOB, GENDER, HOBBIES, LAT, LONG, IMAGES, CREATED) VALUES (%s, %s, %s, %s, %s, %s, PARSE_JSON(%s), %s, %s, PARSE_JSON(%s), %s)"
+    insert_sql = f"INSERT INTO {config.PROFILE_TABLE} (UID, NAME, PHONE, EMAIL, CITY, COUNTRY, D0B, TOB, GENDER, HOBBIES, LAT, LONG, IMAGES, CREATED, LOGIN) VALUES (%s, %s, %s, %s, %s, %s, PARSE_JSON(%s), %s, %s, PARSE_JSON(%s), %s)"
     uid= uuid4()
     name =json_data['name'].lower() 
     phone = json_data['phone']
@@ -132,7 +132,7 @@ def upload():
     hobbies = json_data.get('hobbies', [])
     timestamp = time.time()
     lat, long = get_lat_long(f'{city}, {country}')
-    cursor.execute(insert_sql, (uid, name, phone, email, city, country, dob, tob, gender, hobbies, lat, long, images, timestamp))
+    cursor.execute(insert_sql, (uid, name, phone, email, city, country, dob, tob, gender, hobbies, lat, long, images, timestamp, None))
 
     conn.commit()
     cursor.close()
@@ -177,16 +177,208 @@ def upload():
     # Post recommendations to matching table
 
     cursor_matching = conn_matching.cursor()
-
-    insert_sql_matching = f"INSERT INTO {config.MATCHING_TABLE} (UID1, UID2, SCORE, WHATSAPP1, WHATSAPP2, INSTA1, INSTA2, SNAP1, SNAP2) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)"
+    timestamp = time.time()
+    insert_sql_matching = f"INSERT INTO {config.MATCHING_TABLE} (UID1, UID2, SCORE, CREATED, UPDATED, WHATSAPP1, WHATSAPP2, INSTA1, INSTA2, SNAP1, SNAP2) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)"
     for item in recommendations:
-        cursor.execute(insert_sql_matching, (uid, item[0], item[1], False, False, False, False, False, False ) )
+        cursor.execute(insert_sql_matching, (uid, item[0], item[1], timestamp, timestamp, False, False, False, False, False, False ) )
+
+    conn_matching.commit()
+    cursor_matching.close()
+    conn_matching.close()
+
+    return {'UID' : uid}, None
+
+@app.route('/account:login', methods=['POST'])
+def login():
+    # We will use user email to fetch all data
+    metadata = request.form.get('metadata')
+    if not metadata:
+        return jsonify({'error': 'Missing metadata'}), 400
+    try:
+        json_data = json.loads(metadata)
+    except Exception as e:
+        raise Exception(e)
+
+    email = json_data.get('email', None)
+    if email is None:
+        return jsonify({"error": "Missing 'email' field"}), 400
+
+    current_time = time.time()
+
+    conn = snowflake.connector.connect(
+        user=os.getenv('USERNAME'),
+        password=os.getenv('PASSWORD'),
+        account=os.getenv('ACCOUNT_ID'),
+        warehouse=config.PROFILE_TABLE_WAREHOUSE,
+        database=config.PROFILE_TABLE_DATABASE,
+        schema=config.PROFILE_TABLE_SCHEMA
+    )
+    
+    cursor = conn.cursor()
+    select_sql = f"SELECT UID, CREATED, LOGIN FROM {config.MATCHING_TABLE} WHERE EMAIL = {email}"
+    cursor.execute(select_sql)
+
+    # GET LAST LOGIN AND UID OF USER
+    results = cursor.fetchall()
+    if len(results)>1:
+        log.warning(f'Email {email} is not unique')
+        result = results[-1]
+    else:
+        result = results[0]
+
+    uid = result['UID']
+    created = result['CREATED']
+    last_login = result['LOGIN']
+
+    if last_login is None:
+        last_login = created
+    
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    update_sql = f"UPDATE {config.MATCHING_TABLE} SET LOGIN = {current_time} WHERE UID = {uid}"
+    cursor.execute(update_sql)
+
+    # Fetch all data from existing recommendations
+    conn_matching= snowflake.connector.connect(
+        user=os.getenv('USERNAME'),
+        password=os.getenv('PASSWORD'),
+        account=os.getenv('ACCOUNT_ID'),
+        warehouse=config.MATCHING_TABLE_WAREHOUSE,
+        database=config.MATCHING_TABLE_DATABASE,
+        schema=config.MATCHING_TABLE_SCHEMA
+    )
+
+    sql_fetch = f"SELECT * FROM {config.MATCHING_TABLE} WHERE UID1 = {uid} OR UID2 = {uid}"
+    cursor_matching = conn_matching.cursor()
+
+    cursor_matching.execute(sql_fetch)
+    results = cursor_matching.fetchall()
+
+    # We need 4 queues in UI - recommendations, notifications, awaiting responses, matched.
+    # Segregate recommendations from notifications
+    recommendations, notifications, matched, awaiting = [], [], [], []
+    if len(results)>0:
+        for result in results:
+            if result['WHATSAPP1'] == False and result['WHATSAPP2'] == False and result['INSTA1'] == False and result['INSTA2'] == False and result['SNAP1'] == False and result['SNAP2'] == False:
+                recommendations.append(result)
+            elif (result['WHATSAPP1'] == True and result['WHATSAPP2'] == True) or (result['INSTA1'] == True and result['INSTA2'] == True) or (result['SNAP1'] == True and result['SNAP2'] == True):
+                matched.append(result)
+            elif result['UPDATED'] > current_time:
+                notifications.append(result)
+            else:
+                awaiting.append(result)
+    
+    conn_matching.commit()
+    cursor_matching.close()
+    conn_matching.close()
+
+    return {'UID' : uid, 'RECOMMENDATIONS' : recommendations, 'NOTIFICATIONS' : notifications, 'MATCHED' : matched, 'AWAITING' : awaiting}, None
+    
+@app.route('/account:action', methods=['POST'])
+def action():
+    metadata = request.form.get('metadata')
+    if not metadata:
+        return jsonify({'error': 'Missing metadata'}), 400
+    try:
+        json_data = json.loads(metadata)
+    except Exception as e:
+        raise Exception(e)
+
+    uid = json_data.get('uid', None)
+    if uid is None:
+        return jsonify({"error": "Missing 'uid' field"}), 400
+    
+    recommendation = json_data.get('recommendation')
+    if recommendation is None:
+        return jsonify({"error": "Missing 'uid' field"}), 400
+
+    current_time = time.time()
+
+    # Action can be whatsapp1, whatsapp2, insta1, insta2, snap1, snap2, or skip
+    action = json_data.get('action', None)
+    if action is None:
+        return jsonify({"error": "Missing 'action' field"}), 400
+    
+    conn_matching= snowflake.connector.connect(
+        user=os.getenv('USERNAME'),
+        password=os.getenv('PASSWORD'),
+        account=os.getenv('ACCOUNT_ID'),
+        warehouse=config.MATCHING_TABLE_WAREHOUSE,
+        database=config.MATCHING_TABLE_DATABASE,
+        schema=config.MATCHING_TABLE_SCHEMA
+    )
+    cursor_matching = conn_matching.cursor()
+
+    if recommendation['UID1'] == uid:
+        uid1 = uid
+        uid2 = recommendation['UID2']
+    else:
+        uid2 = uid
+        uid1 = recommendation['UID1']
+
+    if action == 'SKIP':
+
+        delete_sql = f"DELETE FROM {config.MATCHING_TABLE} WHERE UID1 = {uid1} AND UID2 = {uid2}"
+        cursor_matching.execute(delete_sql)
+        cursor_matching.commit()
+
+    # Right now we do not provide option to retract your response
+    elif action in ['WHATSAPP1', 'WHATSAPP2', 'INSTA1', 'INSTA2', 'SNAP1', 'SNAP2']:
+        update_sql = f"UPDATE {config.MATCHING_TABLE} SET {action} = {current_time} WHERE UID = {uid}"
+        recommendation[action] = True
+        cursor_matching.execute(update_sql)
+        cursor_matching.commit()
+
+    else:
+        log.error(f'Unrecognized action: {action}')
+        return jsonify({"error": "Missing 'action' field"}), 400
 
     conn_matching.commit()
     cursor_matching.close()
     conn_matching.close()
 
     return None, None
+
+# Before making the create:account call, UI should make verify:email call to ensure emails are unique 
+@app.route('/verify:email', method=['POST'])
+def verify_email():
+    
+    metadata = request.form.get('metadata')
+    if not metadata:
+        return jsonify({'error': 'Missing metadata'}), 400
+    try:
+        json_data = json.loads(metadata)
+    except Exception as e:
+        raise Exception(e)
+
+    email = json_data.get('email', None)
+    if email is None:
+        return jsonify({"error": "Missing 'email' field"}), 400
+    
+    conn = snowflake.connector.connect(
+        user=os.getenv('USERNAME'),
+        password=os.getenv('PASSWORD'),
+        account=os.getenv('ACCOUNT_ID'),
+        warehouse=config.PROFILE_TABLE_WAREHOUSE,
+        database=config.PROFILE_TABLE_DATABASE,
+        schema=config.PROFILE_TABLE_SCHEMA
+    )
+    cursor = conn.cursor()
+
+    sql_fetch = f'SELECT * FROM {config.PROFILE_TABLE} WHERE EMAIL={email}'
+    cursor.execute(sql_fetch)
+    results = cursor.fetchall()
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    if len(results) > 0:
+        return {'verify' : False}
+    else:
+        return {'verify' : True}
 
 if __name__ == '__main__':
     
