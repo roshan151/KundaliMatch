@@ -28,45 +28,15 @@ REGION = os.getenv("REGION")  # e.g., 'us-east-1'
 
 CURRENT_DIR = os.getcwd()
 
-PROFILE_DB_COLUMNS= {'CITY': 0,
- 'COUNTRY':1,
- 'CREATED':2,
- 'DOB':3,
- 'EMAIL':4,
- 'GENDER':5,
- 'HOBBBIES':6,
- 'IMAGES':7,
- 'LAT':8,
- 'LOGIN':9,
- 'LONG':10,
- 'NAME':11,
- 'PHONE':12,
- 'TOB':13,
- 'UID':14}
-
-MATCHING_TABLE_COLUMNS = {
-    'UID1' : 0,
-    'UID2' : 1,
-    'SCORE' : 2,
-    'CREATED' : 3,
-    'UPDATED': 4,
-    'WHATSAPP1': 5,
-    'WHATSAPP2' :6,
-    'INSTA1' : 7,
-    'INSTA2' : 8,
-    'SNAP1' : 9,
-    'SNAP2' : 10
-}
-
-def upload_image_to_s3(file_path, filename, bucket_name=BUCKET_NAME):
+def upload_image_to_s3(file_path, filename):
     try:
         # TODO replace with snowflake {unique key}-image1
 
         # Upload file to S3
-        s3.upload_file(file_path, bucket_name, filename)
+        s3.upload_file(file_path, BUCKET_NAME, filename)
 
         # Construct public URL
-        url = f"https://{bucket_name}.s3.{REGION}.amazonaws.com/{filename}"
+        url = f"https://{BUCKET_NAME}.s3.{REGION}.amazonaws.com/{filename}"
         return url
     
     except NoCredentialsError:
@@ -131,19 +101,23 @@ def create():
     # Setup snowflake
     profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
     
-
-    insert_sql = f"INSERT INTO {config.PROFILE_TABLE} (UID, NAME, PHONE, EMAIL, CITY, COUNTRY, DOB, TOB, GENDER, HOBBIES, LAT, LONG, IMAGES, CREATED, LOGIN) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+    insert_sql = f"INSERT INTO {config.PROFILE_TABLE} (UID, PASSWORD, NAME, PHONE, EMAIL, CITY, COUNTRY, PROFESSION, BIRTH_CITY, BIRTH_COUNTRY, DOB, TOB, GENDER, HOBBIES, LAT, LONG, IMAGES, CREATED, LOGIN) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
     uid= str(uuid4())
+    password = str(json_data['password'])
     name =json_data['name'].lower() 
     phone = str(json_data['phone'])
     email = json_data['email'].lower()
     city = json_data['city'].lower() 
     country = json_data['country'].lower() 
+    birth_city = json_data['birth_city'].lower()
+    birth_country = json_data['birth_country'].lower()
+    profession = json_data['profession'].lower()
     dob = str(json_data['dob'])
     tob = str(json_data['tob']) # Time of birth
     gender = json_data['gender'].lower()
     hobbies = json_data.get('hobbies', [])
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+
     #logintime = ''
     lat, long = get_lat_long(f'{city}, {country}')
     lat, long = str(lat), str(long)
@@ -180,10 +154,9 @@ def create():
     # for idx, i in enumerate([uid, name, phone, email, city, country, dob, tob, gender, hobbies, lat, long, images, timestamp, timestamp]):
     #     log.info(f'{i}:{type(i)}')
 
-    profile_connect.cursor.execute(insert_sql, (uid, name, phone, email, city, country, dob, tob, gender, hobbies, lat, long, images, timestamp, timestamp))
+    profile_connect.cursor.execute(insert_sql, (uid, password, name, phone, email, city, country, profession, birth_city, birth_country, dob, tob, gender, hobbies, lat, long, images, timestamp, timestamp))
     profile_connect.conn.commit()
     
-
     # RECOMMENDATION LOGIC
     # Fetch all rows of opposite gender:
     if gender == 'male':
@@ -245,12 +218,16 @@ def login():
     email = json_data.get('email', None)
     if email is None:
         return jsonify({"error": "Missing 'email' field"}), 400
+    
+    password = json_data.get('password', None)
+    if password is None:
+        return jsonify({"error": "Missing 'password' field"}), 400
 
     current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
 
     profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
     
-    select_sql = f"SELECT UID, CREATED, LOGIN FROM {config.PROFILE_TABLE} WHERE EMAIL = '{email}'"
+    select_sql = f"SELECT UID, CREATED, PASSWORD, LOGIN FROM {config.PROFILE_TABLE} WHERE EMAIL = '{email}'"
     profile_connect.cursor.execute(select_sql)
 
     # GET LAST LOGIN AND UID OF USER
@@ -262,7 +239,10 @@ def login():
         result = results[0]
     else:
         log.info(f'No user with email { email } found')
-        return {'Login': 'Unsuccessful'}
+        return jsonify({'LOGIN': 'UNSUCCESSFUL', 'ERROR' : 'Email not found.'})
+    
+    if password != result[2]:
+        return jsonify({'LOGIN': 'UNSUCCESSFUL', 'ERROR' : 'Password is Incorrect.'})
 
     uid = result[0]
     created = result[1]
@@ -279,7 +259,7 @@ def login():
 
     matching_connect  = SnowConnect(config.MATCHING_TABLE_WAREHOUSE, config.MATCHING_TABLE_DATABASE, config.MATCHING_TABLE_SCHEMA)
 
-    sql_fetch = f"SELECT * FROM {config.MATCHING_TABLE} WHERE UID1 = '{uid}' OR UID2 = '{uid}'"
+    sql_fetch = f"SELECT UID1, UID2, SCORE, UPDATED, WHATSAPP1, WHATSAPP2, INSTA1, INSTA2, SNAP1, SNAP2 FROM {config.MATCHING_TABLE} WHERE UID1 = '{uid}' OR UID2 = '{uid}'"
     cursor_matching = matching_connect.conn.cursor()
 
     cursor_matching.execute(sql_fetch)
@@ -290,11 +270,11 @@ def login():
     recommendations, notifications, matched, awaiting = [], [], [], []
     if len(results)>0:
         for result in results:
-            if result[MATCHING_TABLE_COLUMNS['WHATSAPP1']] == False and result[MATCHING_TABLE_COLUMNS['WHATSAPP2']] == False and result[MATCHING_TABLE_COLUMNS['INSTA1']] == False and result[MATCHING_TABLE_COLUMNS['INSTA2']] == False and result[MATCHING_TABLE_COLUMNS['SNAP1']] == False and result[MATCHING_TABLE_COLUMNS['SNAP2']] == False:
+            if result[4] == False and result[5] == False and result[6] == False and result[7] == False and result[8] == False and result[9] == False:
                 recommendations.append(result)
-            elif (result[MATCHING_TABLE_COLUMNS['WHATSAPP1']] == True and result[MATCHING_TABLE_COLUMNS['WHATSAPP2']] == True) or (result[MATCHING_TABLE_COLUMNS['INSTA1']] == True and result[MATCHING_TABLE_COLUMNS['INSTA2']] == True) or (result[MATCHING_TABLE_COLUMNS['SNAP1']] == True and result[MATCHING_TABLE_COLUMNS['SNAP2']] == True):
+            elif (result[4] == True and result[5] == True) or (result[6] == True and result[7] == True) or (result[8] == True and result[9] == True):
                 matched.append(result)
-            elif result[MATCHING_TABLE_COLUMNS['UPDATED']] > current_time:
+            elif result[3] > current_time:
                 notifications.append(result)
             else:
                 awaiting.append(result)
@@ -302,8 +282,7 @@ def login():
     matching_connect.conn.commit()
     matching_connect.close()
     
-
-    return {'LOGIN': 'SUCCESSFUL', 'UID' : uid, 'RECOMMENDATIONS' : recommendations, 'NOTIFICATIONS' : notifications, 'MATCHED' : matched, 'AWAITING' : awaiting}, None
+    return {'LOGIN': 'SUCCESSFUL', 'UID' : uid, 'RECOMMENDATIONS' : recommendations, 'NOTIFICATIONS' : notifications, 'MATCHED' : matched, 'AWAITING' : awaiting, 'ERROR' : 'OK'}, None
 
 @app.route('/get:profile', methods=['POST'])
 def get_profile():
@@ -321,7 +300,9 @@ def get_profile():
     
     profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
     
-    select_sql = f"SELECT * FROM {config.PROFILE_TABLE} WHERE UID= '{uid}'"
+    columns = ['UID', 'NAME', 'DOB', 'CITY', 'COUNTRY', 'IMAGES', 'HOBBIES', 'PROFESSION', 'GENDER']
+    columns_string = ', '.join(columns)
+    select_sql = f"SELECT {columns_string} FROM {config.PROFILE_TABLE} WHERE UID= '{uid}'"
     profile_connect.cursor.execute(select_sql)
 
     # GET LAST LOGIN AND UID OF USER
@@ -335,11 +316,12 @@ def get_profile():
     else:
         log.info(f'No result for uid: {uid}')
 
-    output = {}
-    for key, value in PROFILE_DB_COLUMNS.items():
-        output[key] = str(result[value])
-
     profile_connect.close()
+
+    output= {}
+    for idx, name in enumerate(columns):
+        output[name] = result[idx]
+
     return jsonify(output)
 
 @app.route('/account:action', methods=['POST'])
