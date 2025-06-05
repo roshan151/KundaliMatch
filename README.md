@@ -8,8 +8,6 @@ curl -X POST http://localhost:5000/upload \
   -F "images=@path/to/image1.jpg" \
   -F "images=@path/to/image2.png"
 
-# Get schema
-SELECT * FROM YOUR_DATABASE.YOUR_SCHEMA.MY_TABLE;
 
 build image: docker build -t docker-love-bhagya-backend .
 docker image name: docker.io/roshancodeitup/love-bhagya:latest
@@ -30,3 +28,5 @@ sudo docker run --rm -p 8080:8080 docker.io/roshancodeitup/love-bhagya-backend-a
 
 sudo yum install nginx
 sudo apt install certbot python3-certbot-nginx -y
+
+Adding certs: https://certbot.eff.org/instructions?ws=webproduct&os=pip

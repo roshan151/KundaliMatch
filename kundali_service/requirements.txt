@@ -1,4 +1,3 @@
-flask
 requests
 numpy
-pyswisseph
+pyswisseph==2.10.3.1
