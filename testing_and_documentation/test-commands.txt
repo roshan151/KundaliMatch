@@ -3,8 +3,8 @@ curl -X POST http://localhost:8080/verify:email \
 
 curl -X POST http://localhost:8080/account:create \
   -F 'metadata={"name":"John Doe","phone":"1234567890","email":"john@example.com","city":"New York","country":"USA","dob":"1990-01-01","tob":"12:00","gender":"male","hobbies":["reading","traveling"]}' \
-  -F "images=/Users/roshantiwari/src/KundaliMatch/test-images/srk-1.png" \
-  -F "images=/Users/roshantiwari/src/KundaliMatch/srk-2.png"
+  -F "images=/Users/roshantiwari/src/KundaliMatch/testing_and_documentation/test-images/srk-1.png" \
+  -F "images=/Users/roshantiwari/src/KundaliMatch/testing_and_documentation/test-images/srk-2.png"
 
 curl -X POST http://localhost:8080/account:login \
   -F 'metadata={"email": "jhon@example.com"}'
