@@ -20,4 +20,13 @@ docker build -t docker-love-bhagya-backend .
 Docker run:
 docker run --rm -p 8080:8080 docker.io/library/docker-love-bhagya-backend:latest
 
-Pushed Docker imag: docker.io/roshancodeitup/love-bhagya:latest
+
+EC2 COMMANDS:
+sudo yum install -y docker
+docker login
+sudo service docker start
+sudo docker pull docker.io/roshancodeitup/love-bhagya:latest
+sudo docker run --rm -p 8080:8080 docker.io/roshancodeitup/love-bhagya-backend-amd64:latest
+
+sudo yum install nginx
+sudo apt install certbot python3-certbot-nginx -y

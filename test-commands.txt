@@ -29,3 +29,6 @@ curl -X POST http://localhost:8080/account:action \
 
   curl -X POST http://localhost:8080/get:profile \
   -F 'metadata={"uid" : "b43ce7a0-6214-4c5f-9f7a-76324d24ff07"}'
+
+  curl -X POST http://172.17.0.2:8080/verify:email \
+  -F 'metadata={"email": "example@example.com"}'
