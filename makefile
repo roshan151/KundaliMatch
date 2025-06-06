@@ -30,7 +30,7 @@ pull-image:
 # Build image locally (on your machine or EC2 if needed)
 build-image:
 	@echo "Building Docker image..."
-	docker build -t app/ $(DOCKERFILE) 
+	docker build -t app/ $(DOCKERFILE)
 # 3. Run the container
 run-container:
 	@echo "Running Docker container..."

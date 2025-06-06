@@ -13,7 +13,7 @@ build image: docker build -t docker-love-bhagya-backend .
 docker image name: docker.io/roshancodeitup/love-bhagya:latest
 
 Docker Build:
-docker build -t docker-love-bhagya-backend .
+docker build -t --platform linux/amd64 docker-love-bhagya-backend .
 
 Docker run:
 docker run --rm -p 8080:8080 docker.io/library/docker-love-bhagya-backend:latest
@@ -26,7 +26,13 @@ sudo service docker start
 sudo docker pull docker.io/roshancodeitup/love-bhagya:latest
 sudo docker run --rm -p 8080:8080 docker.io/roshancodeitup/love-bhagya-backend-amd64:latest
 
+Kundali service:
+kundali-service-amd64:latest
+
 sudo yum install nginx
 sudo apt install certbot python3-certbot-nginx -y
 
 Adding certs: https://certbot.eff.org/instructions?ws=webproduct&os=pip
+
+Running multiple containers on EC2
+sudo docker run -d --name lovebhagya-backend -p 8080:8080 docker.io/roshancodeitup/love-bhagya-backend-amd64:latest

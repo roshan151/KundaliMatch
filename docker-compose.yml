@@ -1,0 +1,12 @@
+services:
+  backend-service:
+    build: ./backend
+    ports:
+      - "8080:8080"
+    depends_on:
+      - kundali-service
+
+  kundali-service:
+    build: ./kundali_service
+    ports:
+      - "8000:8000"

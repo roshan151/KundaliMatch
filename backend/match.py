@@ -3,14 +3,13 @@ import json
 import time
 import random
 from dotenv import load_dotenv
-
+import requests
 import boto3
 from botocore.exceptions import NoCredentialsError
 from uuid import uuid4
 from PIL import Image
 from geopy.geocoders import Nominatim
 from absl import logging as log 
-#from kundali_score import Kundali
 from config import config
 from flask import Flask, request, jsonify
 from snowflake_utils import SnowConnect
@@ -18,14 +17,15 @@ from snowflake_utils import SnowConnect
 load_dotenv()
 log.set_verbosity(log.INFO)
 
-# Configure AWS (automatically uses ~/.aws/credentials or env vars)
-s3 = boto3.client('s3',
-    aws_access_key_id=os.getenv('S3_ACCESS_ID'),
-    aws_secret_access_key=os.getenv('S3_ACCESS_KEY'))
+# Configure AWS s3
+s3 = boto3.client(
+        's3',
+        aws_access_key_id=os.getenv('S3_ACCESS_ID'),
+        aws_secret_access_key=os.getenv('S3_ACCESS_KEY')
+    )
 
 BUCKET_NAME = os.getenv('BUCKET')
-REGION = os.getenv("REGION")  # e.g., 'us-east-1'
-
+REGION = os.getenv("REGION")
 CURRENT_DIR = os.getcwd()
 
 def upload_image_to_s3(file_path, filename):
@@ -74,6 +74,7 @@ def get_lat_long(address):
         log.info(f'Unable to get lat, long: {e}')
         return '', ''
 
+# BACKUP - this is just backup for kundali service if request service fails
 def get_kundali_score():
     return random.uniform(0.1, 0.9)
     
@@ -101,7 +102,7 @@ def create():
     # Setup snowflake
     profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
     
-    insert_sql = f"INSERT INTO {config.PROFILE_TABLE} (UID, PASSWORD, NAME, PHONE, EMAIL, CITY, COUNTRY, PROFESSION, BIRTH_CITY, BIRTH_COUNTRY, DOB, TOB, GENDER, HOBBIES, LAT, LONG, IMAGES, CREATED, LOGIN) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+    insert_sql = f"INSERT INTO {config.PROFILE_TABLE} (UID, PASSWORD, NAME, PHONE, EMAIL, CITY, COUNTRY, PROFESSION, BIRTH_CITY, BIRTH_COUNTRY, DOB, TOB, GENDER, HOBBIES, LAT, LONG, IMAGES, CREATED, LOGIN) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
     uid= str(uuid4())
     password = str(json_data['password'])
     name =json_data['name'].lower() 
@@ -118,11 +119,12 @@ def create():
     hobbies = json_data.get('hobbies', [])
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
 
-    #logintime = ''
-    lat, long = get_lat_long(f'{city}, {country}')
+    #latitude and longitude is calculated for birth city and birth country
+    lat, long = get_lat_long(f'{birth_city}, {birth_country}')
     lat, long = str(lat), str(long)
 
     # Get S3 url for image files
+    images =[]
     if profile_images:
         png_paths = []
         for idx, image in enumerate(profile_images[:config.MAX_IMAGES]):
@@ -137,28 +139,22 @@ def create():
         for path in png_paths:
             os.remove(path)
 
-    else:
-        log.info('No images found')
-        images = []
+    log.info(f'Number of images: {len(images)}')
 
     # Convert list to string to be parsed as json
     if len(images)> 0:
         images = ','.join(images)
     else:
         images = ''
+
     if len(hobbies) > 0:
         hobbies = str(','.join(hobbies))
     else:
         hobbies = ''
 
-    # for idx, i in enumerate([uid, name, phone, email, city, country, dob, tob, gender, hobbies, lat, long, images, timestamp, timestamp]):
-    #     log.info(f'{i}:{type(i)}')
-
     profile_connect.cursor.execute(insert_sql, (uid, password, name, phone, email, city, country, profession, birth_city, birth_country, dob, tob, gender, hobbies, lat, long, images, timestamp, timestamp))
     profile_connect.conn.commit()
     
-    # RECOMMENDATION LOGIC
-    # Fetch all rows of opposite gender:
     if gender == 'male':
         fetch = 'female'
     else:
@@ -177,9 +173,37 @@ def create():
     for row in results:
         #kundali_obj = Kundali(dob, row['DOB'], tob, row["TOB"], lat, row["LAT"], long, row["LONG"])
         #kundali_score = kundali_obj.get_guna_score()/config.TOTAL_GUN
-        kundali_score = get_kundali_score() # Placeholder
+
+        input_kundali = {
+            'DOB1' : dob,
+            'DOB2' : row[1],
+            'TOB1' : tob, 
+            'TOB2' : row[2].strftime("%H:%M"),
+            'LAT1' : lat,
+            'LAT2' : row[3],
+            'LONG1' : long,
+            'LONG2' : row[4]
+        }
+
+        kundali_score = None
+        try:
+            response = requests.post(   
+                            f'{config.KUNDALI_SERVICE_URL}:{config.KUNDALI_SERVICE_PORT}/get:score', 
+                                headers = {'content-type' : 'application/json'},
+                                json = jsonify(input_kundali)
+                            )
+            if response.status_code == 200:
+                response_json = response.json()
+                if 'score' in response_json:
+                    kundali_score = response_json['score']
+        except Exception as e:
+            log.warning(f'Unable to get response from kundali service: {e}')
+
+        if kundali_score is None:
+            log.info(f'Kundali score is None.')
+            kundali_score = get_kundali_score()
+
         personal_score = get_personal_score(hobbies, row)
-        #uid_col = PROFILE_DB_COLUMNS['UID']
         matched_uids.append(row[0])
         score = kundali_score*config.KUNDALI_WEIGHT + personal_score*config.PERSONAL_WEIGHT
         scores.append(score)
@@ -195,8 +219,6 @@ def create():
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
     insert_sql_matching = f"INSERT INTO {config.MATCHING_TABLE} (UID1, UID2, SCORE, CREATED, UPDATED, WHATSAPP1, WHATSAPP2, INSTA1, INSTA2, SNAP1, SNAP2) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
     for item in recommendations:
-        # for i in [uid, item[0], str(item[1]), timestamp, timestamp, 'False', 'False', 'False', 'False', 'False', 'False']:
-        #     log.info(f'{i}:{type(i)}')
         matching_connect.cursor.execute(insert_sql_matching, (uid, item[0], str(item[1]), timestamp, timestamp, False, False, False, False, False, False ) )
 
     matching_connect.conn.commit()
@@ -338,8 +360,8 @@ def action():
     if uid is None:
         return jsonify({"error": "Missing 'uid' field"}), 400
     
-    recommendation = json_data.get('recommendation')
-    if recommendation is None:
+    match = json_data.get('match')
+    if match is None:
         return jsonify({"error": "Missing 'uid' field"}), 400
 
     current_time = time.time()
@@ -353,14 +375,15 @@ def action():
 
     if action == 'SKIP':
 
-        delete_sql = f"DELETE FROM {config.MATCHING_TABLE} WHERE UID1 = {recommendation['UID1']} AND UID2 = {recommendation['UID2']}"
+        delete_sql = f"DELETE FROM {config.MATCHING_TABLE} WHERE UID1 = {match['UID1']} AND UID2 = {match['UID2']}"
         matching_connect.cursor.execute(delete_sql)
         #matching_connect.cursor.commit()
 
     # Right now we do not provide option to retract your response
     elif action in ['WHATSAPP1', 'WHATSAPP2', 'INSTA1', 'INSTA2', 'SNAP1', 'SNAP2']:
-        update_sql = f"UPDATE {config.MATCHING_TABLE} SET {action} = {current_time} WHERE UID = {uid}"
-        recommendation[action] = True
+
+        update_sql = f"UPDATE {config.MATCHING_TABLE} SET {action} = {current_time} WHERE UID1 = {match['UID1']}"
+        match[action] = True
         matching_connect.cursor.execute(update_sql)
         #matching_connect.cursor.commit()
 
@@ -378,6 +401,7 @@ def action():
 def verify_email():
     
     metadata = request.form.get('metadata')
+    
     if not metadata:
         return jsonify({'error': 'Missing metadata'}), 400
     try:
@@ -385,15 +409,15 @@ def verify_email():
     except Exception as e:
         raise Exception(e)
 
-    email = json_data.get('email', None)
+    email = json_data.get( 'email', None )
     if email is None:
         return jsonify({"error": "Missing 'email' field"}), 400
-    print(f"Username: {os.getenv('SNOWFLAKE_USERNAME')}, Account_id: {os.getenv('SNOWFLAKE_ACCOUNT_ID')}")
+    
     log.info(f"Username: {os.getenv('SNOWFLAKE_USERNAME')}, Account_id: {os.getenv('SNOWFLAKE_ACCOUNT_ID')}")
 
     profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
 
-    sql_fetch = f"SELECT * FROM {config.PROFILE_TABLE} WHERE EMAIL='{email}'"
+    sql_fetch = f"SELECT UID FROM {config.PROFILE_TABLE} WHERE EMAIL='{email}'"
     profile_connect.cursor.execute(sql_fetch)
     results = profile_connect.cursor.fetchall()
 
@@ -401,9 +425,9 @@ def verify_email():
     profile_connect.close()
 
     if len(results) > 0:
-        return {'verify' : False}
+        return { 'verify' : False }
     else:
-        return {'verify' : True}
+        return { 'verify' : True }
 
 if __name__ == '__main__':
     

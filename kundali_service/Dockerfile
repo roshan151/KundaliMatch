@@ -18,6 +18,6 @@ RUN pip install -r requirements.txt
 #RUN git clone https://${GITHUB_PAT}@github.com/someshkar/panchanga.git
 COPY . .
 
-EXPOSE 5000
+EXPOSE 8000
 
 CMD ["python", "app.py"]
