@@ -66,3 +66,27 @@ sudo docker compose up -d
 
 cd to /usr/home/ssm-user
 sudo nano /etc/nginx/conf.d/lovebhagya.com.conf
+
+Docker compose process:
+1. docker compose build
+- Do this with --platform linux/amd64 for EC2
+
+2. docker tag and docker push images
+
+3. Inside EC2 paste docker-compose-ec2-yml (keep name as docker-compose.yml)
+
+4. docker pull 
+-Pull both images, initially requires docker login -u <email> -p <token>
+
+5. docker compose up -d
+
+6. docker container ls
+- List running docker containers
+
+7. docker logs <container-id> -f
+- watch logs
+
+8. docker compose down
+- Stop containers
+
+NOTE: ON ec2 PRECEED COMMANDS WITH SUDO
