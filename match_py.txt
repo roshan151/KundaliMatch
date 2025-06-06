@@ -1,0 +1,10 @@
+Features:
+
+This backend project is built using Flask, a lightweight and flexible web framework for building RESTful APIs
+It utilizes python-dotenv to securely manage environment variables from a .env file, allowing configuration to remain outside the codebase. 
+For cloud storage operations, boto3 is integrated to interact with AWS S3 services, enabling file uploads and downloads. 
+Image processing tasks, such as resizing or format conversion, are handled using Pillow. 
+Geolocation features are supported via geopy with the Nominatim geocoder, allowing the translation of addresses into geographic coordinates. 
+Logging and debugging are enhanced through Abseil logging, which provides structured and flexible logging capabilities. 
+Finally, a custom Snowflake connector module is used to interact with the Snowflake cloud data warehouse, managing secure database operations and queries efficiently.
+
