@@ -66,7 +66,7 @@ class Kundali:
         dt = datetime.datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M:%S")
         return swe.julday(dt.year, dt.month, dt.day, dt.hour + dt.minute / 60 + dt.second / 3600)
 
-    def get_moon_position(jd, lat, lon):
+    def get_moon_position(self, jd, lat, lon):
         flags = swe.FLG_SWIEPH | swe.FLG_SIDEREAL
         swe.set_sid_mode(swe.SIDM_LAHIRI)
         
