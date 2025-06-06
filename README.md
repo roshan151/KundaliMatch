@@ -65,3 +65,4 @@ Then:
 sudo docker compose up -d
 
 cd to /usr/home/ssm-user
+sudo nano /etc/nginx/conf.d/lovebhagya.com.conf
