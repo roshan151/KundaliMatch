@@ -1,7 +1,7 @@
 services:
   backend-service-amd64:
     build:
-      context: ./backend
+      context: ./service-backend
     platform: linux/amd64
     ports:
       - "8080:8080"
@@ -10,7 +10,7 @@ services:
 
   kundali-service-amd64:
     build: 
-      context: ./kundali_service
+      context: ./service-kundali
     platform: linux/amd64
     ports:
       - "8000:8000"
