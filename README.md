@@ -36,3 +36,5 @@ Adding certs: https://certbot.eff.org/instructions?ws=webproduct&os=pip
 
 Running multiple containers on EC2
 sudo docker run -d --name lovebhagya-backend -p 8080:8080 docker.io/roshancodeitup/love-bhagya-backend-amd64:latest
+
+sudo nano /etc/nginx/conf.d/lovebhagya.com.conf
