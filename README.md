@@ -1,33 +1,24 @@
-# Build docker container
-docker build -t flask-multipart .
-docker run -p 5000:5000 flask-multipart
-
 # Request microservice
 curl -X POST http://localhost:5000/upload \
   -F "metadata={\"name\":\"test\",\"email\":\"parshwa.shah@gmail.com\"}" \
   -F "images=@path/to/image1.jpg" \
   -F "images=@path/to/image2.png"
 
+# If not using docker compose
+1. docker build -t docker-love-bhagya-backend .
 
-build image: docker build -t docker-love-bhagya-backend .
-docker image name: docker.io/roshancodeitup/love-bhagya:latest
+2. docker.io/roshancodeitup/love-bhagya:latest
 
-Docker Build:
-docker build -t --platform linux/amd64 docker-love-bhagya-backend .
+3. docker build -t --platform linux/amd64 docker-love-bhagya-backend .
 
-Docker run:
-docker run --rm -p 8080:8080 docker.io/library/docker-love-bhagya-backend:latest
+4. docker run --rm -p 8080:8080 docker.io/library/docker-love-bhagya-backend:latest
 
-
-EC2 COMMANDS:
-sudo yum install -y docker
-docker login
-sudo service docker start
-sudo docker pull docker.io/roshancodeitup/love-bhagya:latest
-sudo docker run --rm -p 8080:8080 docker.io/roshancodeitup/love-bhagya-backend-amd64:latest
-
-Kundali service:
-kundali-service-amd64:latest
+## EC2 Docker commands:
+1. sudo yum install -y docker
+2. docker login
+3. sudo service docker start
+4. sudo docker pull docker.io/roshancodeitup/love-bhagya:latest
+5. sudo docker run --rm -p 8080:8080 docker.io/roshancodeitup/love-bhagya-backend-amd64:latest
 
 <!-- sudo yum install nginx
 sudo apt install certbot python3-certbot-nginx -y
@@ -53,21 +44,18 @@ services:
 EOF
 ```
 
-Install docker compose:
-sudo mkdir -p /usr/local/lib/docker/cli-plugins
-sudo curl -SL https://github.com/docker/compose/releases/download/v2.24.0/docker-compose-linux-x86_64 -o /usr/local/lib/docker/cli-plugins/docker-compose
-sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+## Install docker compose:
+1. sudo mkdir -p /usr/local/lib/docker/cli-plugins
+2. sudo curl -SL https://github.com/docker/compose/releases/download/v2.24.0/docker-compose-linux-x86_64 -o /usr/local/lib/docker/3. 3. cli-plugins/docker-compose
+4. sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 
-Check docker version:
-sudo docker compose version
-
-Then:
-sudo docker compose up -d
+## Check docker version:
+1. sudo docker compose version
 
 cd to /usr/home/ssm-user
-sudo nano /etc/nginx/conf.d/lovebhagya.com.conf
 
-Docker compose process:
+
+## Docker compose process:
 1. docker compose build
 - Do this with --platform linux/amd64 for EC2
 
@@ -90,3 +78,6 @@ Docker compose process:
 - Stop containers
 
 NOTE: ON ec2 PRECEED COMMANDS WITH SUDO
+
+## Edit NGINX config file
+1. sudo nano /etc/nginx/conf.d/lovebhagya.com.conf
