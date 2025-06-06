@@ -1,0 +1,12 @@
+services:
+  backend-service:
+    image: docker.io/roshancodeitup/kundalimatch-backend-service-amd64:latest
+    ports:
+      - "8080:8080"
+    depends_on:
+      - kundali-service
+
+  kundali-service:
+    image: docker.io/roshancodeitup/kundalimatch-kundali-service-amd64:latest
+    ports:
+      - "8000:8000"

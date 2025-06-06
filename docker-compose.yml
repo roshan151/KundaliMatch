@@ -1,12 +1,16 @@
 services:
-  backend-service:
-    build: ./backend
+  backend-service-amd64:
+    build:
+      context: ./backend
+    platform: linux/amd64
     ports:
       - "8080:8080"
     depends_on:
-      - kundali-service
+      - kundali-service-amd64
 
-  kundali-service:
-    build: ./kundali_service
+  kundali-service-amd64:
+    build: 
+      context: ./kundali_service
+    platform: linux/amd64
     ports:
       - "8000:8000"

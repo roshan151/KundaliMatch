@@ -113,8 +113,8 @@ def create():
     birth_city = json_data['birth_city'].lower()
     birth_country = json_data['birth_country'].lower()
     profession = json_data['profession'].lower()
-    dob = str(json_data['dob'])
-    tob = str(json_data['tob']) # Time of birth
+    dob = str(json_data['dob']) # Fix format in UI yyyy-mm-dd
+    tob = str(json_data['tob']) # Fix format in UI hh:mm Time of birth
     gender = json_data['gender'].lower()
     hobbies = json_data.get('hobbies', [])
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
@@ -159,6 +159,13 @@ def create():
         fetch = 'female'
     else:
         fetch = 'male'
+
+    select_self = F"SELECT UID, DOB, TOB, LAT, LONG, HOBBIES FROM {config.PROFILE_TABLE} WHERE UID = '{uid}'"
+    profile_connect.cursor.execute(select_self)
+
+    # Fetch all results
+    results = profile_connect.cursor.fetchall()
+    self_result = results[-1]
     
     select_sql = f"SELECT UID, DOB, TOB, LAT, LONG, HOBBIES FROM {config.PROFILE_TABLE} WHERE GENDER = '{fetch}'"
     profile_connect.cursor.execute(select_sql)
@@ -175,27 +182,31 @@ def create():
         #kundali_score = kundali_obj.get_guna_score()/config.TOTAL_GUN
 
         input_kundali = {
-            'DOB1' : dob,
+            'DOB1' : self_result[1],
             'DOB2' : row[1],
-            'TOB1' : tob, 
+            'TOB1' : self_result[2].strftime("%H:%M"), 
             'TOB2' : row[2].strftime("%H:%M"),
-            'LAT1' : lat,
+            'LAT1' : self_result[3],
             'LAT2' : row[3],
-            'LONG1' : long,
+            'LONG1' : self_result[4],
             'LONG2' : row[4]
         }
 
         kundali_score = None
         try:
+            log.info(f'Input data: {input_kundali}')
             response = requests.post(   
                             f'{config.KUNDALI_SERVICE_URL}:{config.KUNDALI_SERVICE_PORT}/get:score', 
                                 headers = {'content-type' : 'application/json'},
-                                json = jsonify(input_kundali)
+                                json = input_kundali
                             )
             if response.status_code == 200:
                 response_json = response.json()
                 if 'score' in response_json:
                     kundali_score = response_json['score']
+            else:
+                log.info(f'Kundali Service errored: {response._content}')
+            
         except Exception as e:
             log.warning(f'Unable to get response from kundali service: {e}')
 
@@ -306,19 +317,10 @@ def login():
     
     return {'LOGIN': 'SUCCESSFUL', 'UID' : uid, 'RECOMMENDATIONS' : recommendations, 'NOTIFICATIONS' : notifications, 'MATCHED' : matched, 'AWAITING' : awaiting, 'ERROR' : 'OK'}, None
 
-@app.route('/get:profile', methods=['POST'])
-def get_profile():
-    metadata = request.form.get('metadata')
-    if not metadata:
-        return jsonify({'error': 'Missing metadata'}), 400
-    try:
-        json_data = json.loads(metadata)
-    except Exception as e:
-        raise Exception(e)
-
-    uid = json_data.get('uid', None)
+@app.route('/get:profile/{uid}', methods=['GET'])
+def get_profile(uid):
     if uid is None:
-        return jsonify({"error": "Missing 'uid' field"}), 400
+        return jsonify({"error": "Missing 'uid' in url"}), 400
     
     profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
     
@@ -337,14 +339,67 @@ def get_profile():
         result = results[0]
     else:
         log.info(f'No result for uid: {uid}')
+        return jsonify({'error' : f'no results found for uid: {uid}'}), 400
 
     profile_connect.close()
 
     output= {}
     for idx, name in enumerate(columns):
         output[name] = result[idx]
+    
+    output['error'] = 'OK'
 
     return jsonify(output)
+
+@app.route('/find:profiles', methods=['POST'])
+def get_profile(uid):
+    metadata = request.form.get('metadata')
+    if not metadata:
+        return jsonify({'error': 'Missing metadata'}), 400
+    try:
+        json_data = json.loads(metadata)
+    except Exception as e:
+        raise Exception(e)
+    uids = json_data.get('uid', None)
+
+    if uids is None:
+        return jsonify({"error": "Missing 'uid' in url"}), 400
+    
+    if isinstance(uids, list):
+    
+        profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
+        columns = ['UID', 'NAME', 'DOB', 'CITY', 'COUNTRY', 'IMAGES', 'HOBBIES', 'PROFESSION', 'GENDER']
+        columns_string = ', '.join(columns)
+
+        # GET LAST LOGIN AND UID OF USER
+        
+        outputs = {}
+        for uid in uids:
+            select_sql = f"SELECT {columns_string} FROM {config.PROFILE_TABLE} WHERE UID= '{uid}'"
+            profile_connect.cursor.execute(select_sql)
+            results = profile_connect.cursor.fetchall()
+
+            if len(results) > 1:
+                log.info(f'Result is not unique for uid {uid}')
+                result = results[-1]
+            elif len(results) == 1:
+                result = results[0]
+            else:
+                log.info(f'No result for uid: {uid}')
+                result = None
+
+            if result is None:
+                output = {'error' : f'No result for uid: {uid}'}
+            else:
+                for idx, name in enumerate(columns):
+                    output[name] = result[idx]
+                output['error'] = 'OK'
+
+            outputs.append(output)
+        response_output = {'results' : outputs, 'error' : 'OK'}
+        profile_connect.close()
+
+    return jsonify(response_output)
 
 @app.route('/account:action', methods=['POST'])
 def action():
@@ -394,7 +449,7 @@ def action():
     matching_connect.conn.commit()
     matching_connect.close()
 
-    return None, None
+    return jsonify({'error' : 'OK'})
 
 # Before making the create:account call, UI should make verify:email call to ensure emails are unique 
 @app.route('/verify:email', methods=['POST'])
@@ -431,4 +486,4 @@ def verify_email():
 
 if __name__ == '__main__':
     
-    app.run(host='0.0.0.0', port=8080, ssl_context=("certs/cert.pem", "certs/key.pem"))
+    app.run(host='0.0.0.0', port=8080)
