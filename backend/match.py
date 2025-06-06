@@ -352,7 +352,7 @@ def get_profile(uid):
     return jsonify(output)
 
 @app.route('/find:profiles', methods=['POST'])
-def get_profile(uid):
+def find_profiles(uid):
     metadata = request.form.get('metadata')
     if not metadata:
         return jsonify({'error': 'Missing metadata'}), 400
