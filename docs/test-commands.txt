@@ -41,3 +41,12 @@ curl -X POST http://localhost:8080/account:action \
 
   curl -X POST http://172.17.0.2:8080/verify:email \
   -F 'metadata={"email": "example@example.com"}'
+
+curl -X POST http://localhost:8080/account:create \
+  -F 'metadata={"name": "Jane Smith","phone": "9876543210","password": "a9b8c7","profession": "Graphic Designer","birth_city": "Los Angeles","birth_country": "USA","email": "jane@example.com","city": "San Francisco","country": "USA","dob": "1992-07-15","tob": "08:30","gender": "female","hobbies": ["painting", "cycling"]}' \
+  -F "images=@/Users/roshantiwari/src/KundaliMatch/docs/test-images/hr-1.png" \
+  -F "images=@/Users/roshantiwari/src/KundaliMatch/docs/test-images/hr-2.png"
+
+curl -X POST https://lovebhagya.com/account:login -F 'metadata={"email": "jane@example.com", "password" : "a9b8c7"}'
+
+curl -X GET https://lovebhagya.com/get:profile/458c481e-c6e7-48db-ae3b-53f71c85d618

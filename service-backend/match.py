@@ -144,6 +144,7 @@ def create():
     tob = str(json_data['tob']) # Fix format in UI hh:mm Time of birth
     gender = json_data['gender'].lower()
     hobbies = json_data.get('hobbies', [])
+
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
 
     #latitude and longitude is calculated for birth city and birth country
