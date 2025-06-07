@@ -2,6 +2,10 @@ import os
 import json
 import time
 import random
+import base64
+import io
+from flask import send_file
+
 from dotenv import load_dotenv
 import requests
 import boto3
@@ -9,14 +13,23 @@ from botocore.exceptions import NoCredentialsError
 from uuid import uuid4
 from PIL import Image
 from geopy.geocoders import Nominatim
-from absl import logging as log 
+#from absl import logging as log 
 from config import config
 from flask import Flask, request, jsonify, make_response
 from snowflake_utils import SnowConnect
 
-load_dotenv()
-log.set_verbosity(log.INFO)
+from urllib.parse import urlparse
 
+load_dotenv()
+
+import logging as log
+
+log.basicConfig(
+    format='%(levelname)s [%(filename)s:%(lineno)d] %(message)s',
+    level=log.INFO
+    )
+
+#log.set_verbosity(log.INFO)
 # Configure AWS s3
 s3 = boto3.client(
         's3',
@@ -45,7 +58,21 @@ def upload_image_to_s3(file_path, filename):
     except Exception as e:
         log.info(f"Upload failed: {e}")
         return None
+    
+def download_image_from_s3(filename, download_path):
+    try:
+        # Download file from S3
+        s3.download_file(BUCKET_NAME, filename, download_path)
+        log.info(f"Downloaded {filename} to {download_path}")
+        return download_path
 
+    except NoCredentialsError:
+        log.info("AWS credentials not found.")
+        return None
+    except Exception as e:
+        log.info(f"Download failed: {e}")
+        return None
+    
 def process_image(image_path, png_filename):
     try:
         with Image.open(image_path) as img:
@@ -214,7 +241,9 @@ def create():
             log.info(f'Kundali score is None.')
             kundali_score = get_kundali_score()
 
+        # TODO - Personal score scoring through hobbies
         personal_score = get_personal_score(hobbies, row)
+
         matched_uids.append(row[0])
         score = kundali_score*config.KUNDALI_WEIGHT + personal_score*config.PERSONAL_WEIGHT
         scores.append(score)
@@ -222,13 +251,14 @@ def create():
     # SORT LIST AND GET TOP TEN MATCHES
     sorted_pairs = sorted(zip(matched_uids, scores), key=lambda x: x[1], reverse=True)
     recommendations = sorted_pairs[:config.MAX_MATCHES]
+
     log.info(f'Recommendations: {recommendations}')
 
     matching_connect  = SnowConnect(config.MATCHING_TABLE_WAREHOUSE, config.MATCHING_TABLE_DATABASE, config.MATCHING_TABLE_SCHEMA)
     # Post recommendations to matching table
 
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-    insert_sql_matching = f"INSERT INTO {config.MATCHING_TABLE} (UID1, UID2, SCORE, CREATED, UPDATED, WHATSAPP1, WHATSAPP2, INSTA1, INSTA2, SNAP1, SNAP2) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+    insert_sql_matching = f"INSERT INTO {config.MATCHING_TABLE} (UID1, UID2, SCORE, CREATED, UPDATED, ALIGN1, ALIGN2, SKIP1, SKIP2, BLOCK1, BLOCK2) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
     for item in recommendations:
         matching_connect.cursor.execute(insert_sql_matching, (uid, item[0], str(item[1]), timestamp, timestamp, False, False, False, False, False, False ) )
 
@@ -292,7 +322,7 @@ def login():
 
     matching_connect  = SnowConnect(config.MATCHING_TABLE_WAREHOUSE, config.MATCHING_TABLE_DATABASE, config.MATCHING_TABLE_SCHEMA)
 
-    sql_fetch = f"SELECT UID1, UID2, SCORE, UPDATED, WHATSAPP1, WHATSAPP2, INSTA1, INSTA2, SNAP1, SNAP2 FROM {config.MATCHING_TABLE} WHERE UID1 = '{uid}' OR UID2 = '{uid}'"
+    sql_fetch = f"SELECT UID1, UID2, SCORE, UPDATED, ALIGN1, ALIGN2, SKIP1, SKIP2, BLOCK1, BLOCK2 FROM {config.MATCHING_TABLE} WHERE UID1 = '{uid}' OR UID2 = '{uid}'"
     cursor_matching = matching_connect.conn.cursor()
 
     cursor_matching.execute(sql_fetch)
@@ -303,14 +333,26 @@ def login():
     recommendations, notifications, matched, awaiting = [], [], [], []
     if len(results)>0:
         for result in results:
-            if result[4] == False and result[5] == False and result[6] == False and result[7] == False and result[8] == False and result[9] == False:
-                recommendations.append(result)
-            elif (result[4] == True and result[5] == True) or (result[6] == True and result[7] == True) or (result[8] == True and result[9] == True):
-                matched.append(result)
-            elif result[3] > current_time:
-                notifications.append(result)
+            # Last element is True or False Letting UI know if threy need to allow chat feature
+
+            recommended_id = result[0] if result[1] == uid else result[1]
+            if result[6] == True or result[7] == True: # This is skip bitton
+                continue
+
+            if result[4] == False and result[5] == False: # This is align buttons of both users
+                recommendations.append([recommended_id] + list(result[2:6]) + [False])
+            
+            elif result[4] == True and result[5] == True: # Checking if both align
+                if result[3] > current_time:
+                    notifications.append([recommended_id] + list(result[2:6]) + [True])
+                else:
+                    matched.append([recommended_id] + list(result[2:6]) + [True])
+
             else:
-                awaiting.append(result)
+                if result[3] > current_time:
+                    notifications.append([recommended_id] + list(result[2:6]) + [False])
+                else:
+                    awaiting.append([recommended_id] + list(result[2:6]) + [False])
     
     matching_connect.conn.commit()
     matching_connect.close()
@@ -321,15 +363,14 @@ def login():
 def get_profile(uid):
     if uid is None:
         return jsonify({"error": "Missing 'uid' in url"}), 400
-    
+
     profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
-    
+
     columns = ['UID', 'NAME', 'DOB', 'CITY', 'COUNTRY', 'IMAGES', 'HOBBIES', 'PROFESSION', 'GENDER']
     columns_string = ', '.join(columns)
     select_sql = f"SELECT {columns_string} FROM {config.PROFILE_TABLE} WHERE UID= '{uid}'"
     profile_connect.cursor.execute(select_sql)
 
-    # GET LAST LOGIN AND UID OF USER
     results = profile_connect.cursor.fetchall()
 
     if len(results) > 1:
@@ -339,14 +380,48 @@ def get_profile(uid):
         result = results[0]
     else:
         log.info(f'No result for uid: {uid}')
-        return jsonify({'error' : f'no results found for uid: {uid}'}), 400
+        return jsonify({'error': f'no results found for uid: {uid}'}), 400
 
     profile_connect.close()
 
-    output= {}
+    output = {}
     for idx, name in enumerate(columns):
+        if name == 'IMAGES':
+            continue
         output[name] = result[idx]
+
     
+    # Convert image S3 paths to base64-encoded image data
+    image_paths = result[columns.index('IMAGES')]
+    image_data_list = []
+
+    log.info(f'Len image paths: {len(image_paths)}, {image_paths}')
+    if isinstance(image_paths, str) and len(image_paths)>0:
+        images = [image.strip() for image in image_paths.split(',')]
+
+        log.info(f'Len Images: {len(images)}, {images}')
+        if images and isinstance(images, list) and len(images) > 0:
+            try:
+                for path in images:
+                    if path == '':
+                        continue
+                    try:
+                        parsed = urlparse(path)
+                        image_key = parsed.path.lstrip('/')
+                        # Download image from S3 as bytes
+                        s3_object = s3.get_object(Bucket=BUCKET_NAME, Key=image_key)
+                        image_bytes = s3_object['Body'].read()
+                        encoded_image = base64.b64encode(image_bytes).decode('utf-8')
+                        image_data_list.append({
+                            "filename": path,
+                            "data": encoded_image
+                        })
+                    except Exception as e:
+                        log.warning(f"Failed to load image {path}: {e}")
+            except Exception as e:
+                log.warning(f"Failed to parse IMAGES field: {e}")
+
+    output['IMAGES'] = image_data_list
     output['error'] = 'OK'
 
     return jsonify(output)
@@ -391,6 +466,7 @@ def find_profiles():
             if result is None:
                 output = {'error' : f'No result for uid: {uid}'}
             else:
+                output = {}
                 for idx, name in enumerate(columns):
                     output[name] = result[idx]
                 output['error'] = 'OK'

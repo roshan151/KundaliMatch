@@ -17,6 +17,8 @@ curl -X POST http://localhost:8080/account:create \
 curl -X POST http://localhost:8080/account:login \
   -F 'metadata={"email": "jhon@example.com"}'
 
+curl -X POST http://localhost:8080/find:profiles -F 'metadata={"uids":["user_001","user_002"]}'
+
 curl -X POST http://localhost:8080/account:action \
   -F 'metadata={
     "action" : "WHATSAPP2",
@@ -35,8 +37,7 @@ curl -X POST http://localhost:8080/account:action \
     }
   }'
 
-  curl -X POST http://localhost:8080/get:profile \
-  -F 'metadata={"uid" : "b43ce7a0-6214-4c5f-9f7a-76324d24ff07"}'
+  curl -X GET http://localhost:8080/get:profile/b43ce7a0-6214-4c5f-9f7a-76324d24ff07
 
   curl -X POST http://172.17.0.2:8080/verify:email \
   -F 'metadata={"email": "example@example.com"}'

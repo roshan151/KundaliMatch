@@ -1,0 +1,6 @@
+.env
+certs/
+credentials.make
+key.pem
+.DS_Store
+__pycache__/

@@ -2,11 +2,18 @@ import os
 import json
 from datetime import datetime, time
 import numpy as np
-from absl import logging as log 
+#from absl import logging as log 
 from kundali_score import Kundali
 from flask import Flask, request, jsonify
 
-log.set_verbosity(log.INFO)
+import logging as log
+
+log.basicConfig(
+    format='%(levelname)s [%(filename)s:%(lineno)d] %(message)s',
+    level=log.INFO
+    )
+#log.set_verbosity(log.INFO)
+
 
 def parse_date(value):
     """Converts input to YYYY-MM-DD string."""
