@@ -1,8 +1,9 @@
-curl -X POST http://localhost:8080/verify:email \
-  -F 'metadata={"email": "example@example.com"}'
+curl -X POST http://localhost:8080/verify:email -F 'metadata={"email": "example@example.com"}'
+
+curl -X POST http://18.218.180.137:8080/verify:email -F 'metadata={"email": "example@example.com"}'
 
 EC2 - Create Account
-curl -k -X POST https://18.218.180.137:8080/account:create \
+curl -k -X POST https://lovebhagya/account:create \
   -F 'metadata={"name":"John Doe","phone":"1234567890","password":"h2j3k4","profession":"Software Developer","birth_city":"Miami","birth_country":"USA","email":"john@example.com","city":"New York","country":"USA","dob":"1990-01-01","tob":"12:00","gender":"male","hobbies":["reading","traveling"]}' \
   -F "images=@/Users/roshantiwari/src/KundaliMatch/testing_and_documentation/test-images/srk-1.png" \
   -F "images=@/Users/roshantiwari/src/KundaliMatch/testing_and_documentation/test-images/srk-2.png"

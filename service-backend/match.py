@@ -317,7 +317,7 @@ def login():
     
     return {'LOGIN': 'SUCCESSFUL', 'UID' : uid, 'RECOMMENDATIONS' : recommendations, 'NOTIFICATIONS' : notifications, 'MATCHED' : matched, 'AWAITING' : awaiting, 'ERROR' : 'OK'}, None
 
-@app.route('/get:profile/{uid}', methods=['GET'])
+@app.route('/get:profile/<string:uid>', methods=['GET'])
 def get_profile(uid):
     if uid is None:
         return jsonify({"error": "Missing 'uid' in url"}), 400
@@ -352,7 +352,7 @@ def get_profile(uid):
     return jsonify(output)
 
 @app.route('/find:profiles', methods=['POST'])
-def find_profiles(uid):
+def find_profiles():
     metadata = request.form.get('metadata')
     if not metadata:
         return jsonify({'error': 'Missing metadata'}), 400
@@ -373,7 +373,7 @@ def find_profiles(uid):
 
         # GET LAST LOGIN AND UID OF USER
         
-        outputs = {}
+        outputs = []
         for uid in uids:
             select_sql = f"SELECT {columns_string} FROM {config.PROFILE_TABLE} WHERE UID= '{uid}'"
             profile_connect.cursor.execute(select_sql)
