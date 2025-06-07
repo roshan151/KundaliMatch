@@ -11,7 +11,7 @@ from PIL import Image
 from geopy.geocoders import Nominatim
 from absl import logging as log 
 from config import config
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, make_response
 from snowflake_utils import SnowConnect
 
 load_dotenv()
@@ -483,6 +483,13 @@ def verify_email():
         return { 'verify' : False }
     else:
         return { 'verify' : True }
+
+@app.after_request
+def add_cors_headers(response):
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, PUT, DELETE"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+    return response
 
 if __name__ == '__main__':
     
