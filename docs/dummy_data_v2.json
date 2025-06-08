@@ -149,6 +149,21 @@
     "tob": "12:15",
     "gender": "male",
     "hobbies": ["dancing", "fitness", "reading", "music", "traveling", "photography"]
+  },
+  {
+    "name": "Ranbir Kapoor",
+    "phone": "9000000035",
+    "password": "ranbirK@1982",
+    "profession": "Actor",
+    "birth_city": "Mumbai",
+    "birth_country": "India",
+    "email": "ranbir.kapoor@example.com",
+    "city": "Mumbai",
+    "country": "India",
+    "dob": "1982-09-28",
+    "tob": "15:45",
+    "gender": "male",
+    "hobbies": ["football", "traveling", "watching movies", "music", "gym workouts", "cooking"]
   }
   
 ] 

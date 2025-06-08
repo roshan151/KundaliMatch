@@ -109,6 +109,45 @@ def get_kundali_score():
 def get_personal_score(hobbies, row):
     return random.uniform(0.1, 0.9)
 
+def compute_score(user_1 : list, user_2 : list):
+    input_kundali = {
+            'DOB1' : user_1[1],
+            'DOB2' : user_2[1],
+            'TOB1' : user_1[2].strftime("%H:%M"), 
+            'TOB2' : user_2[2].strftime("%H:%M"),
+            'LAT1' : user_1[3],
+            'LAT2' : user_2[3],
+            'LONG1' : user_1[4],
+            'LONG2' : user_2[4]
+        }
+
+    kundali_score = None
+    try:
+        log.info(f'Input data: {input_kundali}')
+        response = requests.post(   
+                        f'{config.KUNDALI_SERVICE_URL}:{config.KUNDALI_SERVICE_PORT}/get:score', 
+                            headers = {'content-type' : 'application/json'},
+                            json = input_kundali
+                        )
+        if response.status_code == 200:
+            response_json = response.json()
+            if 'score' in response_json:
+                kundali_score = response_json['score']
+        else:
+            log.info(f'Kundali Service errored: {response._content}')
+        
+    except Exception as e:
+        log.warning(f'Unable to get response from kundali service: {e}')
+
+    if kundali_score is None:
+        log.info(f'Kundali score is None.')
+        kundali_score = get_kundali_score()
+
+    # TODO - Personal score scoring through hobbies
+    personal_score = get_personal_score(user_1[5], user_2[5])
+
+    return round(((kundali_score/config.TOTAL_GUN)*config.KUNDALI_WEIGHT + personal_score*config.PERSONAL_WEIGHT)*config.SCORE_OUT_OF, 1)
+
 app = Flask(__name__)
 @app.route('/account:create', methods=['POST'])
 def create():
@@ -209,44 +248,8 @@ def create():
         #kundali_obj = Kundali(dob, row['DOB'], tob, row["TOB"], lat, row["LAT"], long, row["LONG"])
         #kundali_score = kundali_obj.get_guna_score()/config.TOTAL_GUN
 
-        input_kundali = {
-            'DOB1' : self_result[1],
-            'DOB2' : row[1],
-            'TOB1' : self_result[2].strftime("%H:%M"), 
-            'TOB2' : row[2].strftime("%H:%M"),
-            'LAT1' : self_result[3],
-            'LAT2' : row[3],
-            'LONG1' : self_result[4],
-            'LONG2' : row[4]
-        }
-
-        kundali_score = None
-        try:
-            log.info(f'Input data: {input_kundali}')
-            response = requests.post(   
-                            f'{config.KUNDALI_SERVICE_URL}:{config.KUNDALI_SERVICE_PORT}/get:score', 
-                                headers = {'content-type' : 'application/json'},
-                                json = input_kundali
-                            )
-            if response.status_code == 200:
-                response_json = response.json()
-                if 'score' in response_json:
-                    kundali_score = response_json['score']
-            else:
-                log.info(f'Kundali Service errored: {response._content}')
-            
-        except Exception as e:
-            log.warning(f'Unable to get response from kundali service: {e}')
-
-        if kundali_score is None:
-            log.info(f'Kundali score is None.')
-            kundali_score = get_kundali_score()
-
-        # TODO - Personal score scoring through hobbies
-        personal_score = get_personal_score(hobbies, row)
-
         matched_uids.append(row[0])
-        score = kundali_score*config.KUNDALI_WEIGHT + personal_score*config.PERSONAL_WEIGHT
+        score = compute_score(self_result, row)
         scores.append(score)
 
     # SORT LIST AND GET TOP TEN MATCHES
@@ -334,24 +337,32 @@ def login():
         for result in results:
             # Last element is True or False Letting UI know if threy need to allow chat feature
 
-            recommended_id = result[0] if result[1] == uid else result[1]
-            if result[6] == True or result[7] == True: # This is skip bitton
+            rec_idx = 0 if result[1] == uid else 1
+            usr_idx = 1 if rec_idx == 0 else 1
+            recommended_id = result[rec_idx]
+            rec_align = result[4+rec_idx] ## This is align bitton of recommended profile
+            usr_align = result[4+usr_idx]   # This is align bitton of user
+            rec_skip = result[6+rec_idx] ## This is skip bitton of recommended profile
+            usr_skip = result[6+usr_idx] # This is skip bitton of user
+            score = result[2]
+
+            if usr_skip == True or rec_skip == True: # This is skip bitton
                 continue
 
-            if result[4] == False and result[5] == False: # This is align buttons of both users
-                recommendations.append([recommended_id] + list(result[2:6]) + [False])
+            if usr_align == False and rec_align == False: # This is align buttons of both users
+                recommendations.append([recommended_id, score, usr_align, rec_align, usr_skip, rec_skip, False])
             
-            elif result[4] == True and result[5] == True: # Checking if both align
+            elif usr_align == True and rec_align == True: # Checking if both align
                 if result[3] > last_login:
-                    notifications.append([recommended_id] + list(result[2:6]) + [True])
+                    notifications.append([recommended_id, score, usr_align, rec_align, usr_skip, rec_skip, True])
                 else:
-                    matched.append([recommended_id] + list(result[2:6]) + [True])
+                    matched.append([recommended_id, score, usr_align, rec_align, usr_skip, rec_skip, True])
 
             else:
                 if result[3] > last_login:
-                    notifications.append([recommended_id] + list(result[2:6]) + [False])
+                    notifications.append([recommended_id, score, usr_align, rec_align, usr_skip, rec_skip, True])
                 else:
-                    awaiting.append([recommended_id] + list(result[2:6]) + [False])
+                    awaiting.append([recommended_id, score, usr_align, rec_align, usr_skip, rec_skip, True])
     
     matching_connect.conn.commit()
     matching_connect.close()
@@ -490,11 +501,22 @@ def action():
     if uid is None:
         return jsonify({"error": "Missing 'uid' field"}), 400
     
-    match = json_data.get('match')
-    if match is None:
-        return jsonify({"error": "Missing 'uid' field"}), 400
+    rec_uid = json_data.get('recommendation_uid' , None)
+    if rec_uid is None:
+        return jsonify({"error": "Missing 'recommendation_uid' field"}), 400
+    
+    action = json_data.get('action' , None)
+    if action is None:
+        return jsonify({"error": "Missing action field"}), 400
+    
+    if isinstance(action, str):
+        action = action.lower()
+        if action not in ['skip', 'align']:
+            return jsonify({"error": "action field invalid, expects skip or align"}), 400
+    else:
+        return jsonify({"error": "action is not string"}), 400
 
-    current_time = time.time()
+    current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
 
     # Action can be whatsapp1, whatsapp2, insta1, insta2, snap1, snap2, or skip
     action = json_data.get('action', None)
@@ -502,29 +524,47 @@ def action():
         return jsonify({"error": "Missing 'action' field"}), 400
     
     matching_connect = SnowConnect(config.MATCHING_TABLE_WAREHOUSE, config.MATCHING_TABLE_DATABASE, config.MATCHING_TABLE_SCHEMA)
+    sql_fetch = f"SELECT * FROM {config.MATCHING_TABLE} WHERE (UID1 = '{uid}' AND UID2 = '{rec_uid}') OR (UID1 = '{rec_uid}' AND UID2= '{uid}')"
+    matching_connect.cursor.execute(sql_fetch)
+    results = matching_connect.cursor.fetchall()
+    if len(results)>1:
+        log.warning(f'Mathing table row is not unique {uid}, {rec_uid}')
+        result = results[-1]
+    elif len(results)==1:
+        result = results[0]
+    else:
+        return jsonify({"error": f"No row in matching table {uid}, {rec_uid}"}), 400
+    
+    primary = 0 if result[0] == uid else 1
+    if action == 'skip':
 
-    if action == 'SKIP':
-
-        delete_sql = f"DELETE FROM {config.MATCHING_TABLE} WHERE UID1 = {match['UID1']} AND UID2 = {match['UID2']}"
+        delete_sql = f"DELETE FROM {config.MATCHING_TABLE} WHERE UID1 = '{result[0]}' AND UID2 ='{result[1]}'"
         matching_connect.cursor.execute(delete_sql)
-        #matching_connect.cursor.commit()
+        queue = 'None'
+        message = 'User will not be recommended to you.'
 
     # Right now we do not provide option to retract your response
-    elif action in ['WHATSAPP1', 'WHATSAPP2', 'INSTA1', 'INSTA2', 'SNAP1', 'SNAP2']:
-
-        update_sql = f"UPDATE {config.MATCHING_TABLE} SET {action} = {current_time} WHERE UID1 = {match['UID1']}"
-        match[action] = True
+    elif action == 'align':
+        align_col = f'ALIGN{primary+1}'
+        update_sql = f"""
+                        UPDATE {config.MATCHING_TABLE}
+                        SET {align_col} = TRUE, UPDATED = '{current_time}'
+                        WHERE UID1 = '{result[0]}' AND UID2 = '{result[1]}'
+                        """
         matching_connect.cursor.execute(update_sql)
-        #matching_connect.cursor.commit()
 
-    else:
-        log.error(f'Unrecognized action: {action}')
-        return jsonify({"error": "Missing 'action' field"}), 400
+        if result[4] == True and result[5] == True:
+            queue = 'MATCHED'
+            message = 'You have been matched with the user.'
+        else:
+            queue = 'AWAITING'
+            message = 'Align request has been sent to user'
 
     matching_connect.conn.commit()
     matching_connect.close()
 
-    return jsonify({'error' : 'OK'})
+    return jsonify({'error' : 'OK', 'queue' : queue, 'message' : message})
+
 
 # Before making the create:account call, UI should make verify:email call to ensure emails are unique 
 @app.route('/verify:email', methods=['POST'])
@@ -558,6 +598,168 @@ def verify_email():
         return { 'verify' : False }
     else:
         return { 'verify' : True }
+
+@app.route('/account:update', methods=['POST'])
+def update_account():
+    metadata = request.form.get('metadata')
+    if not metadata:
+        return jsonify({'error': 'Missing metadata'}), 400
+    try:
+        json_data = json.loads(metadata)
+    except json.JSONDecodeError:
+        return jsonify({'error': 'Invalid JSON'}), 400
+
+    uid = json_data.get('uid')
+    if not uid:
+        return jsonify({'error': 'Missing UID for update'}), 400
+
+    profile_images = request.files.getlist("images")
+    fields = {}
+    png_paths = []
+
+    # Define expected fields and handle them
+    allowed_fields = [
+        'password', 'name', 'phone', 'city', 'country', 'profession',
+        'birth_city', 'birth_country', 'dob', 'tob', 'gender', 'hobbies'
+    ]
+    if 'email' in json_data and isinstance(json_data['email'], str) and json_data['email'] != '':
+        return jsonify({'error' : 'You cannot modify email'})
+
+    for field in allowed_fields:
+        if field in json_data:
+            value = json_data[field]
+            if isinstance(value, str) and value != '':
+                value = value.lower()
+            if field == 'hobbies' and isinstance(value, list):
+                value = ','.join(value)
+            fields[field.upper()] = str(value)
+
+    # Get latitude and longitude if birth city/country is provided
+    if 'birth_city' in json_data or 'birth_country' in json_data:
+        birth_city = json_data.get('birth_city', '').lower()
+        birth_country = json_data.get('birth_country', '').lower()
+        lat, long = get_lat_long(f'{birth_city}, {birth_country}')
+        fields['LAT'] = str(lat)
+        fields['LONG'] = str(long)
+
+    # Process images
+    if profile_images:
+        images = []
+        for idx, image in enumerate(profile_images[:config.MAX_IMAGES]):
+            path = process_image(image, f'image-{idx}.png')
+            if path:
+                url = upload_image_to_s3(path, f'profile_pictures/{uid}/image-{idx}.png')
+                images.append(str(url))
+                png_paths.append(path)
+
+        # Remove local files
+        for path in png_paths:
+            os.remove(path)
+
+        fields['IMAGES'] = ','.join(images)
+
+    # If no fields to update
+    if not fields:
+        return jsonify({'error': 'No valid fields provided for update'}), 400
+
+    # Build SQL UPDATE dynamically
+    set_clause = ', '.join([f"{key} = %s" for key in fields.keys()])
+    values = list(fields.values())
+    values.append(uid)  # for WHERE clause
+
+    update_sql = f"UPDATE {config.PROFILE_TABLE} SET {set_clause} WHERE UID = %s"
+
+    try:
+        profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
+        profile_connect.cursor.execute(update_sql, values)
+        profile_connect.conn.commit()
+    except Exception as e:
+        log.error(f"Failed to update profile: {e}")
+        return jsonify({'error': 'Database error during update'}), 500
+    
+
+    # Define fields that impact matching
+    matching_fields = {'DOB', 'TOB', 'LAT', 'LONG', 'HOBBIES'}
+    update_score = False
+    for field in matching_fields:
+        if field in fields:
+            update_score = True
+            break
+
+    # Check if matching-relevant fields were updated
+    if update_score:
+        log.info(f"Recalculating matching score for UID: {uid} due to updates.")
+
+        # Re-fetch updated user profile
+        profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
+        profile_connect.cursor.execute(f"SELECT UID, DOB, TOB, LAT, LONG, HOBBIES, GENDER FROM {config.PROFILE_TABLE} WHERE UID = %s", (uid,))
+        current_user = profile_connect.cursor.fetchone()
+        
+        if current_user:
+            uid, dob, tob, lat, long, hobbies, gender = current_user
+
+            # Fetch all matches where this user is involved
+            matching_connect = SnowConnect(config.MATCHING_TABLE_WAREHOUSE, config.MATCHING_TABLE_DATABASE, config.MATCHING_TABLE_SCHEMA)
+            match_query = f"SELECT UID1, UID2 FROM {config.MATCHING_TABLE} WHERE UID1 = %s OR UID2 = %s"
+            matching_connect.cursor.execute(match_query, (uid, uid))
+            match_rows = matching_connect.cursor.fetchall()
+
+            recommended_uids, new_scores = [], []
+            for uid1, uid2 in match_rows:
+                # Determine the other user
+                other_uid = uid2 if uid1 == uid else uid1
+                
+
+                # Fetch other user's data
+                profile_connect.cursor.execute(f"SELECT UID, DOB, TOB, LAT, LONG, HOBBIES, GENDER FROM {config.PROFILE_TABLE} WHERE UID = %s", (other_uid,))
+                other_user = profile_connect.cursor.fetchone()
+
+                if other_user:
+                    # Compute new score (you should have this logic in place)
+                    new_score = compute_score(current_user, other_user)
+
+                    recommended_uids.append(other_uid)
+                    new_scores.append(new_score)
+
+                    # Update score in matching table
+                    update_match_sql = f"UPDATE {config.MATCHING_TABLE} SET SCORE = %s WHERE (UID1 = %s AND UID2 = %s) OR (UID1 = %s AND UID2 = %s)"
+                    matching_connect.cursor.execute(update_match_sql, (new_score, uid, other_uid, other_uid, uid))
+            
+            if gender == 'male':
+                fetch = 'female'
+            else:
+                fetch = 'male'
+
+            recommended_uids = ['uid1', 'uid2', 'uid3']
+            uids_sql = "(" + ",".join(f"'{uid}'" for uid in recommended_uids) + ")"
+
+            select_sql = f"SELECT UID, DOB, TOB, LAT, LONG, HOBBIES FROM {config.PROFILE_TABLE} WHERE GENDER = '{fetch}' AND UID NOT IN {uids_sql}"
+            profile_connect.cursor.execute(select_sql)
+
+            # Fetch all results
+            results = profile_connect.cursor.fetchall()
+            profile_connect.close()
+
+            previous_uids = recommended_uids[:]
+            for row in results:
+    
+                recommended_uids.append(row[0])
+                score = compute_score(current_user, row)
+                new_scores.append(score)
+
+            # SORT LIST AND GET TOP TEN MATCHES
+            sorted_pairs = sorted(zip(recommended_uids, new_scores), key=lambda x: x[1], reverse=True)
+            recommendations = sorted_pairs[:config.MAX_MATCHES]
+            insert_sql_matching = f"INSERT INTO {config.MATCHING_TABLE} (UID1, UID2, SCORE, CREATED, UPDATED, ALIGN1, ALIGN2, SKIP1, SKIP2, BLOCK1, BLOCK2) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+
+            timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+            for idx, id_pair in enumerate(recommendations):
+                if id_pair[0] not in previous_uids:
+                    matching_connect.cursor.execute(insert_sql_matching, (uid, id_pair[0], str(id_pair[1]), timestamp, timestamp, False, False, False, False, False, False ) )
+            matching_connect.conn.commit()
+            matching_connect.close()
+
+    return jsonify({'UID' : uid, 'error' : 'OK'}), 200
 
 @app.after_request
 def add_cors_headers(response):

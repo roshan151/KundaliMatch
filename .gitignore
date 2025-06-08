@@ -4,3 +4,7 @@ credentials.make
 key.pem
 .DS_Store
 __pycache__/
+docker-compose-ec2.yml
+docker-compose-local.yml
+docker-compose.yml
+docker-compose-amd64.yml
