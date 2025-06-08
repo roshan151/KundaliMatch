@@ -317,7 +317,6 @@ def login():
     
     update_sql = f"UPDATE {config.PROFILE_TABLE} SET LOGIN = '{current_time}' WHERE UID = '{uid}'"
     profile_connect.cursor.execute(update_sql)
-
     profile_connect.conn.commit()
     profile_connect.close()
 
@@ -325,7 +324,6 @@ def login():
 
     sql_fetch = f"SELECT UID1, UID2, SCORE, UPDATED, ALIGN1, ALIGN2, SKIP1, SKIP2, BLOCK1, BLOCK2 FROM {config.MATCHING_TABLE} WHERE UID1 = '{uid}' OR UID2 = '{uid}'"
     cursor_matching = matching_connect.conn.cursor()
-
     cursor_matching.execute(sql_fetch)
     results = cursor_matching.fetchall()
 
@@ -344,13 +342,13 @@ def login():
                 recommendations.append([recommended_id] + list(result[2:6]) + [False])
             
             elif result[4] == True and result[5] == True: # Checking if both align
-                if result[3] > current_time:
+                if result[3] > last_login:
                     notifications.append([recommended_id] + list(result[2:6]) + [True])
                 else:
                     matched.append([recommended_id] + list(result[2:6]) + [True])
 
             else:
-                if result[3] > current_time:
+                if result[3] > last_login:
                     notifications.append([recommended_id] + list(result[2:6]) + [False])
                 else:
                     awaiting.append([recommended_id] + list(result[2:6]) + [False])

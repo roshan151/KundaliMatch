@@ -1,0 +1,162 @@
+[
+    {
+        "name": "Shah Rukh Khan",
+        "phone": "9000000001",
+        "password": "srkMagic123",
+        "profession": "Actor",
+        "birth_city": "New Delhi",
+        "birth_country": "India",
+        "email": "srk.kingkhan@example.com",
+        "city": "Mumbai",
+        "country": "India",
+        "dob": "1965-11-02",
+        "tob": "14:30",
+        "gender": "male",
+        "hobbies": ["cricket", "computer games", "reading", "collecting gadgets", "traveling"]
+      }, 
+      
+  {
+    "name": "Anushka Sharma",
+    "phone": "9000000002",
+    "password": "anyaStar@88",
+    "profession": "Actress",
+    "birth_city": "Ayodhya",
+    "birth_country": "India",
+    "email": "anushka.sharma@example.com",
+    "city": "Mumbai",
+    "country": "India",
+    "dob": "1988-05-01",
+    "tob": "09:15",
+    "gender": "female",
+    "hobbies": ["cooking", "fitness", "traveling", "reading", "photography", "yoga"]
+  },
+  {
+    "name": "Alia Bhatt",
+    "phone": "9000000003",
+    "password": "aliaB@hatt93",
+    "profession": "Actress",
+    "birth_city": "Mumbai",
+    "birth_country": "India",
+    "email": "alia.bhatt@example.com",
+    "city": "Mumbai",
+    "country": "India",
+    "dob": "1993-03-15",
+    "tob": "10:45",
+    "gender": "female",
+    "hobbies": ["singing", "acting", "reading", "drawing", "traveling", "hosting"]
+  },
+  {
+    "name": "Priyanka Chopra",
+    "phone": "9000000004",
+    "password": "pcChopra!82",
+    "profession": "Actress",
+    "birth_city": "Jamshedpur",
+    "birth_country": "India",
+    "email": "priyanka.chopra@example.com",
+    "city": "Mumbai",
+    "country": "India",
+    "dob": "1982-07-18",
+    "tob": "08:20",
+    "gender": "female",
+    "hobbies": ["dancing", "philanthropy", "fitness", "reading", "traveling", "fashion"]
+  },
+  {
+    "name": "Sobhita Dhulipala",
+    "phone": "9000000005",
+    "password": "sobhitaD92!",
+    "profession": "Actress",
+    "birth_city": "Tenali",
+    "birth_country": "India",
+    "email": "sobhita.d@example.com",
+    "city": "Mumbai",
+    "country": "India",
+    "dob": "1992-05-31",
+    "tob": "11:00",
+    "gender": "female",
+    "hobbies": ["dancing", "reading", "fashion", "yoga", "traveling", "photography"]
+  },
+  {
+    "name": "Gauri Khan",
+    "phone": "9000000006",
+    "password": "gauriKhan70",
+    "profession": "Producer",
+    "birth_city": "New Delhi",
+    "birth_country": "India",
+    "email": "gauri.khan@example.com",
+    "city": "Mumbai",
+    "country": "India",
+    "dob": "1970-10-08",
+    "tob": "07:45",
+    "gender": "female",
+    "hobbies": ["interior design", "fashion", "cooking", "reading", "traveling", "gardening"]
+  },
+  {
+    "name": "Divya Dutta",
+    "phone": "9000000008",
+    "password": "divyaDutta77",
+    "profession": "Actress",
+    "birth_city": "Ludhiana",
+    "birth_country": "India",
+    "email": "divya.dutta@example.com",
+    "city": "Mumbai",
+    "country": "India",
+    "dob": "1977-09-25",
+    "tob": "12:10",
+    "gender": "female",
+    "hobbies": ["writing", "reading", "traveling", "photography", "cooking", "gardening"]
+  },
+  {
+    "name": "Shreyas Talpade",
+    "phone": "9000000009",
+    "password": "shreyasT@76",
+    "profession": "Actor",
+    "birth_city": "Mumbai",
+    "birth_country": "India",
+    "email": "shreyas.talpade@example.com",
+    "city": "Mumbai",
+    "country": "India",
+    "dob": "1976-01-27",
+    "tob": "15:20",
+    "gender": "male",
+    "hobbies": ["cricket", "singing", "traveling", "reading", "acting", "cooking"]
+  },
+  {
+    "name": "Sidharth Malhotra",
+    "phone": "9000000010",
+    "password": "sidMalhotra85",
+    "profession": "Actor",
+    "birth_city": "Delhi",
+    "birth_country": "India",
+    "email": "sidharth.m@example.com",
+    "city": "Mumbai",
+    "country": "India",
+    "dob": "1985-01-16",
+    "tob": "10:05",
+    "gender": "male",
+    "hobbies": ["fitness", "traveling", "reading", "gaming", "cooking", "photography"]
+  },
+  {
+    "name": "Hrithik Roshan",
+    "phone": "9000000021",
+    "password": "hrithikR@1974",
+    "profession": "Actor",
+    "birth_city": "Mumbai",
+    "birth_country": "India",
+    "email": "hrithik.roshan@example.com",
+    "city": "Mumbai",
+    "country": "India",
+    "dob": "1974-01-10",
+    "tob": "12:15",
+    "gender": "male",
+    "hobbies": ["dancing", "fitness", "reading", "music", "traveling", "photography"]
+  }
+  
+] 
+  
+  
+  
+  
+  
+  
+  
+  
