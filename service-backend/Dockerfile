@@ -12,4 +12,4 @@ COPY . .
 
 EXPOSE 8080
 
-CMD ["python", "match.py"]
+CMD ["python", "backend.py"]

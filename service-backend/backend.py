@@ -1,6 +1,7 @@
 import os
 import json
 import time
+import yaml
 import random
 import base64
 import io
@@ -14,6 +15,11 @@ from uuid import uuid4
 from PIL import Image
 from geopy.geocoders import Nominatim
 #from absl import logging as log 
+
+from langchain.chat_models import ChatOpenAI
+from langchain.schema import HumanMessage, AIMessage, SystemMessage
+
+
 from config import config
 from flask import Flask, request, jsonify, make_response
 from snowflake_utils import SnowConnect
@@ -40,6 +46,9 @@ s3 = boto3.client(
 BUCKET_NAME = os.getenv('BUCKET')
 REGION = os.getenv("REGION")
 CURRENT_DIR = os.getcwd()
+
+# Setup your LLM (choose gpt-4o / gpt-3.5-turbo etc.)
+llm = ChatOpenAI(model="gpt-4o", temperature=0.7)
 
 def upload_image_to_s3(file_path, filename):
     try:
@@ -760,6 +769,103 @@ def update_account():
             matching_connect.close()
 
     return jsonify({'UID' : uid, 'error' : 'OK'}), 200
+
+# DESTINY
+# There are 3 different methods to implement chatting
+# initiate - start conversation by first fetching details about the user from snoflake
+# continue - continue the conversation, it expects history as a list of dicts, this is to be smoothest and does no database calls
+# terminate - after the conversation pushes provided history to s3
+
+def load_prompts(filepath: str) -> dict:
+    with open(filepath, "r") as file:
+        return yaml.safe_load(file)
+    
+
+@app.route("/chat:initiate/<string:uid>", methods = ["GET"])
+def chat_initiate(uid):
+    if uid is None:
+        return jsonify({"error": "Missing 'uid' in url"}), 400
+
+    profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
+
+    columns = ['UID', 'NAME', 'DOB', 'CITY', 'COUNTRY', 'HOBBIES', 'PROFESSION', 'GENDER']
+    columns_string = ', '.join(columns)
+    select_sql = f"SELECT {columns_string} FROM {config.PROFILE_TABLE} WHERE UID= '{uid}'"
+    profile_connect.cursor.execute(select_sql)
+
+    results = profile_connect.cursor.fetchall()
+
+    if len(results) > 1:
+        log.info(f'Result is not unique')
+        result = results[-1]
+    elif len(results) == 1:
+        result = results[0]
+    else:
+        log.info(f'No result for uid: {uid}')
+        return jsonify({'error': f'no results found for uid: {uid}'}), 400
+    
+    name = result[1]
+    hobbies = result[5]
+
+    profile_connect.close()
+
+    prompts = load_prompts(config.PROMPTS_YAML)
+    system_prompt = prompts['system_prompt'].format(name = name, hobbies = hobbies)
+
+    # Start with system message if no history
+    messages = []
+    messages.append(SystemMessage(content=system_prompt))
+    # Get response from LLM
+    try:
+        response = llm(messages)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+    assistant_msg = response.content
+
+    return jsonify({"role": "assistant", "message": assistant_msg})
+
+@app.route("/chat:continue", methods=["POST"])
+def chat():
+    data = request.get_json()
+
+    user_input = data.get("user_input")
+    history = data.get("history", [])
+
+    if not user_input:
+        return jsonify({"error": "Missing 'user_input'"}), 400
+
+    messages = []
+    # Add chat history (reconstruct LangChain message objects)
+    for msg in history:
+        if msg['role'] == 'user':
+            messages.append(HumanMessage(content=msg['message']))
+        elif msg['role'] == 'assistant':
+            messages.append(AIMessage(content=msg['message']))
+
+    # Add the latest user input
+    messages.append(HumanMessage(content=user_input))
+
+    # Get response from LLM
+    try:
+        response = llm(messages)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+    assistant_msg = response.content
+
+    # Update history
+    updated_history = history + [
+        {"role": "user", "message": user_input},
+        {"role": "assistant", "message": assistant_msg}
+    ]
+
+    return jsonify({
+        "reply": assistant_msg,
+        "history": updated_history
+    })
+
+
 
 @app.after_request
 def add_cors_headers(response):

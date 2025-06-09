@@ -47,6 +47,6 @@ curl -X POST http://localhost:8080/account:create \
   -F "images=@/Users/roshantiwari/src/KundaliMatch/docs/test-images/hr-1.png" \
   -F "images=@/Users/roshantiwari/src/KundaliMatch/docs/test-images/hr-2.png"
 
-curl -X POST https://lovebhagya.com/account:login -F 'metadata={"email": "jane@example.com", "password" : "a9b8c7"}'
-curl -X POST http://localhost:8080/:action -F 'metadata={"uid": "ac02ee31-0f65-48e8-9f94-22f574d85700", "recommendation_uid":"", "action" : "align"}'
+curl -X POST https://lovebhagya.com/account:login -F 'metadata={"email": "hrithik.roshan@example.com", "password" : "hrithikR@1974"}'
+curl -X POST http://localhost:8080/:action -F 'metadata={"uid": "ac02ee31-0f65-48e8-9f94-22f574d85700", "recommendation_uid":"aa08972c-4b6a-421d-b0d5-86a2638020c6", "action" : "align"}'
 curl -X GET https://lovebhagya.com/get:profile/458c481e-c6e7-48db-ae3b-53f71c85d618

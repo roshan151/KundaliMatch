@@ -1,0 +1,21 @@
+conversation_task:
+  description: >
+    Start a conversation with the user {name} who enjoys {hobbies}.
+    Ask friendly questions about their hobbies and follow up based on what they say.
+
+    End with "Thank you for chatting, this information helps us find better matches for you."
+
+    Please format the full conversation as a JSON object like this:
+          {{
+              "messages": [
+                  {{"assistant": "Hi! You said you enjoy movies..."}},
+                  {{"user": "Yes, I love Pulp Fiction."}},
+                  {{"assistant": "Are you a Tarantino fan?"}},
+                  ...
+                  {{"assistant": "Thank you for chatting..."}}
+              ]
+          }}
+  expected_output: >
+    "A JSON object with key 'messages' containing alternating assistant/user turns"
+
+  agent: conversational

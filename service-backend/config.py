@@ -17,5 +17,6 @@ class Config:
     MATCHING_TABLE_WAREHOUSE = "COMPUTE_WH"
     KUNDALI_SERVICE_URL = "http://kundali-service"
     KUNDALI_SERVICE_PORT = "8000"
+    PROMPTS_YAML = 'prompts.yaml'
 
 config = Config()
