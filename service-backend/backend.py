@@ -524,7 +524,17 @@ def action():
             return jsonify({"error": "action field invalid, expects skip or align"}), 400
     else:
         return jsonify({"error": "action is not string"}), 400
-
+    
+    user_name = json_data.get('user_name' , None)
+    if user_name is None:
+        return jsonify({"error": "Missing action field"}), 400
+    
+    if isinstance(user_name, str) and len(user_name) > 0:
+        user_name = user_name.lower()
+        
+    else:
+        return jsonify({"error": "user_name not provided"}), 400
+    
     current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
 
     # Action can be whatsapp1, whatsapp2, insta1, insta2, snap1, snap2, or skip
@@ -550,7 +560,7 @@ def action():
         delete_sql = f"DELETE FROM {config.MATCHING_TABLE} WHERE UID1 = '{result[0]}' AND UID2 ='{result[1]}'"
         matching_connect.cursor.execute(delete_sql)
         queue = 'None'
-        message = 'User will not be recommended to you.'
+        message = f'{user_name} will not be recommended to you.'
 
     # Right now we do not provide option to retract your response
     elif action == 'align':
@@ -564,10 +574,10 @@ def action():
 
         if result[4] == True and result[5] == True:
             queue = 'MATCHED'
-            message = 'You have been matched with the user.'
+            message = f'You have been matched with the {user_name}.'
         else:
             queue = 'AWAITING'
-            message = 'Align request has been sent to user'
+            message = f'Align request has been sent to {user_name}'
 
     matching_connect.conn.commit()
     matching_connect.close()
