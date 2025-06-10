@@ -18,5 +18,6 @@ class Config:
     KUNDALI_SERVICE_URL = "http://kundali-service"
     KUNDALI_SERVICE_PORT = "8000"
     PROMPTS_YAML = 'prompts.yaml'
+    OPENAI_MODEL_NAME = "gpt-4o-mini"
 
 config = Config()

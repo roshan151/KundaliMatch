@@ -164,7 +164,23 @@
     "tob": "15:45",
     "gender": "male",
     "hobbies": ["football", "traveling", "watching movies", "music", "gym workouts", "cooking"]
+  },
+  {
+    "name": "Arjun Rampal",
+    "phone": "9000000036",
+    "password": "arjunR@1972",
+    "profession": "Actor",
+    "birth_city": "Jabalpur",
+    "birth_country": "India",
+    "email": "arjun.rampal@example.com",
+    "city": "Mumbai",
+    "country": "India",
+    "dob": "1972-11-26",
+    "tob": "02:30",
+    "gender": "male",
+    "hobbies": ["fitness", "reading", "traveling", "photography", "music", "biking"]
   }
+  
   
 ] 
   

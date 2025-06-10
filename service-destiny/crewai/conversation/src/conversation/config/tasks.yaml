@@ -3,7 +3,9 @@ conversation_task:
     Start a conversation with the user {name} who enjoys {hobbies}.
     Ask friendly questions about their hobbies and follow up based on what they say.
 
-    End with "Thank you for chatting, this information helps us find better matches for you."
+    If no history is provided then initiate a question based on the hobbies otherwise continue the existing conversation
+    Keep the conversation short that is dont ask more than 2 follow up questions, If the user is interested in continuing the conversation, please do.
+    End with "Thank you for chatting, this information helps us improve the recommendation algorithm to find better matches for you."
 
     Please format the full conversation as a JSON object like this:
           {{
@@ -11,8 +13,10 @@ conversation_task:
                   {{"assistant": "Hi! You said you enjoy movies..."}},
                   {{"user": "Yes, I love Pulp Fiction."}},
                   {{"assistant": "Are you a Tarantino fan?"}},
-                  ...
-                  {{"assistant": "Thank you for chatting..."}}
+                  {{"user": "yes"}},
+                  {{"assistant": "That's Great! what other tarintino files you like?"}}
+                  {{"user": "i like inglorious bastards as well"}}
+                  {{"assistant": "Thank you for chatting, this information helps us improve the recommendation algorithm to find better matches for you."}}
               ]
           }}
   expected_output: >

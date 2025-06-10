@@ -6,7 +6,7 @@ import random
 import base64
 import io
 from flask import send_file
-
+from datetime import datetime
 from dotenv import load_dotenv
 import requests
 import boto3
@@ -19,6 +19,8 @@ from geopy.geocoders import Nominatim
 from langchain.chat_models import ChatOpenAI
 from langchain.schema import HumanMessage, AIMessage, SystemMessage
 
+# from twilio.jwt.access_token import AccessToken
+# from twilio.jwt.access_token.grants import ChatGrant
 
 from config import config
 from flask import Flask, request, jsonify, make_response
@@ -48,7 +50,7 @@ REGION = os.getenv("REGION")
 CURRENT_DIR = os.getcwd()
 
 # Setup your LLM (choose gpt-4o / gpt-3.5-turbo etc.)
-llm = ChatOpenAI(model="gpt-4o", temperature=0.7)
+llm = ChatOpenAI(model=config.OPENAI_MODEL_NAME, temperature=0.7)
 
 def upload_image_to_s3(file_path, filename):
     try:
@@ -157,7 +159,27 @@ def compute_score(user_1 : list, user_2 : list):
 
     return round(((kundali_score/config.TOTAL_GUN)*config.KUNDALI_WEIGHT + personal_score*config.PERSONAL_WEIGHT)*config.SCORE_OUT_OF, 1)
 
+
 app = Flask(__name__)
+
+# @app.route('/twillio:token', methods=['POST'])
+# def generate_token():
+#     identity = request.json.get('identity')
+
+#     token = AccessToken(
+#         account_sid='YOUR_ACCOUNT_SID',
+#         api_key='YOUR_API_KEY',
+#         api_secret='YOUR_API_SECRET',
+#         identity=identity
+#     )
+
+#     chat_grant = ChatGrant(service_sid='YOUR_SERVICE_SID')
+#     token.add_grant(chat_grant)
+
+#     return jsonify({'token': token.to_jwt().decode()})
+
+
+
 @app.route('/account:create', methods=['POST'])
 def create():
     # Recieve multipart request
@@ -243,14 +265,14 @@ def create():
     results = profile_connect.cursor.fetchall()
     self_result = results[-1]
     
-    select_sql = f"SELECT UID, DOB, TOB, LAT, LONG, HOBBIES FROM {config.PROFILE_TABLE} WHERE GENDER = '{fetch}'"
+    select_sql = f"SELECT UID, DOB, TOB, LAT, LONG, HOBBIES, NAME FROM {config.PROFILE_TABLE} WHERE GENDER = '{fetch}'"
     profile_connect.cursor.execute(select_sql)
 
     # Fetch all results
     results = profile_connect.cursor.fetchall()
     profile_connect.close()
 
-    matched_uids = []
+    matched_uids, matched_names = [], []
     scores = []
 
     for row in results:
@@ -258,11 +280,13 @@ def create():
         #kundali_score = kundali_obj.get_guna_score()/config.TOTAL_GUN
 
         matched_uids.append(row[0])
+        matched_names.append(row[-1])
         score = compute_score(self_result, row)
         scores.append(score)
 
+
     # SORT LIST AND GET TOP TEN MATCHES
-    sorted_pairs = sorted(zip(matched_uids, scores), key=lambda x: x[1], reverse=True)
+    sorted_pairs = sorted(zip(matched_uids, scores, matched_names), key=lambda x: x[1], reverse=True)
     recommendations = sorted_pairs[:config.MAX_MATCHES]
 
     log.info(f'Recommendations: {recommendations}')
@@ -271,14 +295,24 @@ def create():
     # Post recommendations to matching table
 
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-    insert_sql_matching = f"INSERT INTO {config.MATCHING_TABLE} (UID1, UID2, SCORE, CREATED, UPDATED, ALIGN1, ALIGN2, SKIP1, SKIP2, BLOCK1, BLOCK2) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+    insert_sql_matching = f"INSERT INTO {config.MATCHING_TABLE} (UID1, NAME1, UID2, NAME2, SCORE, CREATED, UPDATED, ALIGN1, ALIGN2, SKIP1, SKIP2, BLOCK1, BLOCK2) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
     for item in recommendations:
-        matching_connect.cursor.execute(insert_sql_matching, (uid, item[0], str(item[1]), timestamp, timestamp, False, False, False, False, False, False ) )
+        matching_connect.cursor.execute(insert_sql_matching, (uid, name, item[0], str(item[2]), str(item[1]), timestamp, timestamp, False, False, False, False, False, False ) )
 
     matching_connect.conn.commit()
     matching_connect.close()
 
     return {'UID' : uid}, None
+
+def ensure_datetime(value):
+    if isinstance(value, datetime):
+        return value
+    elif isinstance(value, str):
+        # Adjust the format to match your string timestamp format
+        return datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+    else:
+        raise TypeError(f"Unsupported type for datetime conversion: {type(value)}")
+
 
 @app.route('/account:login', methods=['POST'])
 def login():
@@ -322,10 +356,12 @@ def login():
 
     uid = result[0]
     created = result[1]
-    last_login = result[2]
+    last_login = result[3]
 
     if last_login is None:
         last_login = created
+
+    last_login = ensure_datetime(last_login)
     
     update_sql = f"UPDATE {config.PROFILE_TABLE} SET LOGIN = '{current_time}' WHERE UID = '{uid}'"
     profile_connect.cursor.execute(update_sql)
@@ -334,7 +370,7 @@ def login():
 
     matching_connect  = SnowConnect(config.MATCHING_TABLE_WAREHOUSE, config.MATCHING_TABLE_DATABASE, config.MATCHING_TABLE_SCHEMA)
 
-    sql_fetch = f"SELECT UID1, UID2, SCORE, UPDATED, ALIGN1, ALIGN2, SKIP1, SKIP2, BLOCK1, BLOCK2 FROM {config.MATCHING_TABLE} WHERE UID1 = '{uid}' OR UID2 = '{uid}'"
+    sql_fetch = f"SELECT UID1, UID2, SCORE, UPDATED, ALIGN1, ALIGN2, SKIP1, SKIP2, BLOCK1, BLOCK2, NAME1, NAME2 FROM {config.MATCHING_TABLE} WHERE UID1 = '{uid}' OR UID2 = '{uid}'"
     cursor_matching = matching_connect.conn.cursor()
     cursor_matching.execute(sql_fetch)
     results = cursor_matching.fetchall()
@@ -354,6 +390,11 @@ def login():
             rec_skip = result[6+rec_idx] ## This is skip bitton of recommended profile
             usr_skip = result[6+usr_idx] # This is skip bitton of user
             score = result[2]
+            rec_name = result[10+rec_idx]
+
+            updated_time = ensure_datetime(result[3])
+
+            message = None
 
             if usr_skip == True or rec_skip == True: # This is skip bitton
                 continue
@@ -362,21 +403,20 @@ def login():
                 recommendations.append([recommended_id, score, usr_align, rec_align, usr_skip, rec_skip, False])
             
             elif usr_align == True and rec_align == True: # Checking if both align
-                if result[3] > last_login:
-                    notifications.append([recommended_id, score, usr_align, rec_align, usr_skip, rec_skip, True])
-                else:
-                    matched.append([recommended_id, score, usr_align, rec_align, usr_skip, rec_skip, True])
+                if updated_time > last_login:
+                    message = f'NOTIFICATION: You have aligned with {rec_name}'
+                matched.append([recommended_id, score, usr_align, rec_align, usr_skip, rec_skip, True])
 
             else:
-                if result[3] > last_login:
-                    notifications.append([recommended_id, score, usr_align, rec_align, usr_skip, rec_skip, True])
-                else:
-                    awaiting.append([recommended_id, score, usr_align, rec_align, usr_skip, rec_skip, True])
+                if updated_time > last_login:
+                    if rec_align == True:
+                        message = f'NOTIFICATION: {rec_name} requested to align with you'
+                awaiting.append([recommended_id, score, usr_align, rec_align, usr_skip, rec_skip, True])
     
     matching_connect.conn.commit()
     matching_connect.close()
     
-    return {'LOGIN': 'SUCCESSFUL', 'UID' : uid, 'RECOMMENDATIONS' : recommendations, 'NOTIFICATIONS' : notifications, 'MATCHED' : matched, 'AWAITING' : awaiting, 'ERROR' : 'OK'}, None
+    return {'LOGIN': 'SUCCESSFUL', 'UID' : uid, 'RECOMMENDATIONS' : recommendations, 'MATCHED' : matched, 'AWAITING' : awaiting, 'MESSAGE' : message, 'ERROR' : 'OK'}
 
 @app.route('/get:profile/<string:uid>', methods=['GET'])
 def get_profile(uid):
@@ -525,15 +565,15 @@ def action():
     else:
         return jsonify({"error": "action is not string"}), 400
     
-    user_name = json_data.get('user_name' , None)
-    if user_name is None:
-        return jsonify({"error": "Missing action field"}), 400
+    # user_name = json_data.get('user_name' , None)
+    # if user_name is None:
+    #     return jsonify({"error": "Missing action field"}), 400
     
-    if isinstance(user_name, str) and len(user_name) > 0:
-        user_name = user_name.lower()
+    # if isinstance(user_name, str) and len(user_name) > 0:
+    #     user_name = user_name.lower()
         
-    else:
-        return jsonify({"error": "user_name not provided"}), 400
+    # else:
+    #     return jsonify({"error": "user_name not provided"}), 400
     
     current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
 
@@ -543,7 +583,7 @@ def action():
         return jsonify({"error": "Missing 'action' field"}), 400
     
     matching_connect = SnowConnect(config.MATCHING_TABLE_WAREHOUSE, config.MATCHING_TABLE_DATABASE, config.MATCHING_TABLE_SCHEMA)
-    sql_fetch = f"SELECT * FROM {config.MATCHING_TABLE} WHERE (UID1 = '{uid}' AND UID2 = '{rec_uid}') OR (UID1 = '{rec_uid}' AND UID2= '{uid}')"
+    sql_fetch = f"SELECT UID1, UID2, SCORE, UPDATED, ALIGN1, ALIGN2, SKIP1, SKIP2, BLOCK1, BLOCK2, NAME1, NAME2 FROM {config.MATCHING_TABLE} WHERE (UID1 = '{uid}' AND UID2 = '{rec_uid}') OR (UID1 = '{rec_uid}' AND UID2= '{uid}')"
     matching_connect.cursor.execute(sql_fetch)
     results = matching_connect.cursor.fetchall()
     if len(results)>1:
@@ -555,12 +595,14 @@ def action():
         return jsonify({"error": f"No row in matching table {uid}, {rec_uid}"}), 400
     
     primary = 0 if result[0] == uid else 1
+    rec_idx = 1 if primary == 0 else 0
+    recommended_user_name = result[10+rec_idx]
     if action == 'skip':
 
         delete_sql = f"DELETE FROM {config.MATCHING_TABLE} WHERE UID1 = '{result[0]}' AND UID2 ='{result[1]}'"
         matching_connect.cursor.execute(delete_sql)
         queue = 'None'
-        message = f'{user_name} will not be recommended to you.'
+        message = f'{recommended_user_name} will not be recommended to you.'
 
     # Right now we do not provide option to retract your response
     elif action == 'align':
@@ -574,10 +616,10 @@ def action():
 
         if result[4] == True and result[5] == True:
             queue = 'MATCHED'
-            message = f'You have been matched with the {user_name}.'
+            message = f'You have been matched with the {recommended_user_name}.'
         else:
             queue = 'AWAITING'
-            message = f'Align request has been sent to {user_name}'
+            message = f'Align request has been sent to {recommended_user_name}'
 
     matching_connect.conn.commit()
     matching_connect.close()
@@ -711,11 +753,11 @@ def update_account():
 
         # Re-fetch updated user profile
         profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
-        profile_connect.cursor.execute(f"SELECT UID, DOB, TOB, LAT, LONG, HOBBIES, GENDER FROM {config.PROFILE_TABLE} WHERE UID = %s", (uid,))
+        profile_connect.cursor.execute(f"SELECT UID, DOB, TOB, LAT, LONG, HOBBIES, GENDER, NAME FROM {config.PROFILE_TABLE} WHERE UID = %s", (uid,))
         current_user = profile_connect.cursor.fetchone()
         
         if current_user:
-            uid, dob, tob, lat, long, hobbies, gender = current_user
+            uid, dob, tob, lat, long, hobbies, gender, user_name = current_user
 
             # Fetch all matches where this user is involved
             matching_connect = SnowConnect(config.MATCHING_TABLE_WAREHOUSE, config.MATCHING_TABLE_DATABASE, config.MATCHING_TABLE_SCHEMA)
@@ -723,14 +765,14 @@ def update_account():
             matching_connect.cursor.execute(match_query, (uid, uid))
             match_rows = matching_connect.cursor.fetchall()
 
-            recommended_uids, new_scores = [], []
+            recommended_uids, recommended_names, new_scores = [], [], []
             for uid1, uid2 in match_rows:
                 # Determine the other user
                 other_uid = uid2 if uid1 == uid else uid1
                 
 
                 # Fetch other user's data
-                profile_connect.cursor.execute(f"SELECT UID, DOB, TOB, LAT, LONG, HOBBIES, GENDER FROM {config.PROFILE_TABLE} WHERE UID = %s", (other_uid,))
+                profile_connect.cursor.execute(f"SELECT UID, DOB, TOB, LAT, LONG, HOBBIES, GENDER, NAME FROM {config.PROFILE_TABLE} WHERE UID = %s", (other_uid,))
                 other_user = profile_connect.cursor.fetchone()
 
                 if other_user:
@@ -739,6 +781,7 @@ def update_account():
 
                     recommended_uids.append(other_uid)
                     new_scores.append(new_score)
+                    recommended_names.append(other_user[-1])
 
                     # Update score in matching table
                     update_match_sql = f"UPDATE {config.MATCHING_TABLE} SET SCORE = %s WHERE (UID1 = %s AND UID2 = %s) OR (UID1 = %s AND UID2 = %s)"
@@ -752,7 +795,7 @@ def update_account():
             recommended_uids = ['uid1', 'uid2', 'uid3']
             uids_sql = "(" + ",".join(f"'{uid}'" for uid in recommended_uids) + ")"
 
-            select_sql = f"SELECT UID, DOB, TOB, LAT, LONG, HOBBIES FROM {config.PROFILE_TABLE} WHERE GENDER = '{fetch}' AND UID NOT IN {uids_sql}"
+            select_sql = f"SELECT UID, DOB, TOB, LAT, LONG, HOBBIES, NAME FROM {config.PROFILE_TABLE} WHERE GENDER = '{fetch}' AND UID NOT IN {uids_sql}"
             profile_connect.cursor.execute(select_sql)
 
             # Fetch all results
@@ -765,16 +808,17 @@ def update_account():
                 recommended_uids.append(row[0])
                 score = compute_score(current_user, row)
                 new_scores.append(score)
+                recommended_names.append(-1)
 
             # SORT LIST AND GET TOP TEN MATCHES
-            sorted_pairs = sorted(zip(recommended_uids, new_scores), key=lambda x: x[1], reverse=True)
+            sorted_pairs = sorted(zip(recommended_uids, new_scores, recommended_names), key=lambda x: x[1], reverse=True)
             recommendations = sorted_pairs[:config.MAX_MATCHES]
-            insert_sql_matching = f"INSERT INTO {config.MATCHING_TABLE} (UID1, UID2, SCORE, CREATED, UPDATED, ALIGN1, ALIGN2, SKIP1, SKIP2, BLOCK1, BLOCK2) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+            insert_sql_matching = f"INSERT INTO {config.MATCHING_TABLE} (UID1, UID2, SCORE, CREATED, UPDATED, ALIGN1, ALIGN2, SKIP1, SKIP2, BLOCK1, BLOCK2, NAME1, NAME2) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
 
             timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
             for idx, id_pair in enumerate(recommendations):
                 if id_pair[0] not in previous_uids:
-                    matching_connect.cursor.execute(insert_sql_matching, (uid, id_pair[0], str(id_pair[1]), timestamp, timestamp, False, False, False, False, False, False ) )
+                    matching_connect.cursor.execute(insert_sql_matching, (uid, id_pair[0], str(id_pair[1]), timestamp, timestamp, False, False, False, False, False, False, user_name, id_pair[-1]) )
             matching_connect.conn.commit()
             matching_connect.close()
 
@@ -844,6 +888,9 @@ def chat():
 
     if not user_input:
         return jsonify({"error": "Missing 'user_input'"}), 400
+    
+    if not history:
+        return jsonify({"error": "Missing 'history'"}), 400
 
     messages = []
     # Add chat history (reconstruct LangChain message objects)
@@ -874,7 +921,6 @@ def chat():
         "reply": assistant_msg,
         "history": updated_history
     })
-
 
 
 @app.after_request

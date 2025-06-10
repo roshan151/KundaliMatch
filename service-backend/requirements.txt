@@ -6,5 +6,6 @@ pillow
 geopy
 dotenv
 absl-py
+openai
 langchain
 langchain_community
