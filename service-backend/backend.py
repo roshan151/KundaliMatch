@@ -403,12 +403,17 @@ def login():
         notifications_url_parsed = urlparse(notifications_url)
         notifications_url = notifications_url_parsed.path.lstrip('/')
 
-        # Download image from S3 as bytes
-        s3_object = s3.get_object(Bucket=BUCKET_NAME, Key=notifications_url)
-        yaml_content = s3_object['Body'].read()
+        try:
+            # Download image from S3 as bytes
+            s3_object = s3.get_object(Bucket=BUCKET_NAME, Key=notifications_url)
+            yaml_content = s3_object['Body'].read()
 
-        # Parse YAML
-        notifications = yaml.safe_load(yaml_content)
+            # Parse YAML
+            notifications = yaml.safe_load(yaml_content)
+        except Exception as e:
+            log.info(f'No such key found or not a valid yaml: {notifications_url}')
+            notifications = []
+
         new_s3_obj = False
     
     update_sql = f"UPDATE {config.PROFILE_TABLE} SET LOGIN = '{current_time}' WHERE UID = '{uid}'"
@@ -423,12 +428,13 @@ def login():
     # We need 4 queues in UI - recommendations, notifications, awaiting responses, matched.
     # Segregate recommendations from notifications
     recommendation_cards = []
+    recommended_uids = []
     if len(results)>0:
         for result in results:
             # Last element is True or False Letting UI know if threy need to allow chat feature
 
-            rec_idx = 0 if result[1] == uid else 1
-            usr_idx = 1 if rec_idx == 0 else 1
+            usr_idx = 0 if result[0] == uid else 1
+            rec_idx = 1 if usr_idx == 0 else 1
             recommended_id = result[rec_idx]
             rec_align = result[4+rec_idx] ## This is align bitton of recommended profile
             usr_align = result[4+usr_idx]   # This is align bitton of user
@@ -436,6 +442,7 @@ def login():
             usr_skip = result[6+usr_idx] # This is skip bitton of user
             score = result[2]
             rec_name = result[10+rec_idx]
+            log.info(f'{rec_align}, {usr_align}, {rec_skip}, {usr_skip}')
 
             updated_time = ensure_datetime(result[3])
 
@@ -462,11 +469,15 @@ def login():
                         message = f'NOTIFICATION: {rec_name} requested to align with you'
                         notifications.append({'message' : message, 'updated' : updated_time})
 
-                    queue = 'AWAITING'
+                queue = 'AWAITING'
                 chat_enabled = False
-    
-            recommendation_cards.append({"recommendation_uid" : recommended_id, "score" : score, "chat_enabled" : chat_enabled, "queue" : queue, "user_align" : usr_align})
-    
+
+            log.info({"recommendation_uid" : recommended_id, "score" : score, "chat_enabled" : chat_enabled, "queue" : queue, "user_align" : usr_align})
+            
+            if recommended_id not in recommended_uids:
+                recommendation_cards.append({"recommendation_uid" : recommended_id, "score" : score, "chat_enabled" : chat_enabled, "queue" : queue, "user_align" : usr_align})
+                recommended_uids.append(recommended_id)
+                
     matching_connect.conn.commit()
     matching_connect.close()
 
@@ -741,7 +752,7 @@ def action():
     action = json_data.get('action', None)
     if action is None:
         return jsonify({"error": "Missing 'action' field"}), 400
-    
+    valid_cols = ['UID1', 'UID2', 'SCORE', 'UPDATED', 'ALIGN1', 'ALIGN2', 'SKIP1', 'SKIP2', 'BLOCK1', 'BLOCK2', 'NAME1', 'NAME2']
     matching_connect = SnowConnect(config.MATCHING_TABLE_WAREHOUSE, config.MATCHING_TABLE_DATABASE, config.MATCHING_TABLE_SCHEMA)
     sql_fetch = f"SELECT UID1, UID2, SCORE, UPDATED, ALIGN1, ALIGN2, SKIP1, SKIP2, BLOCK1, BLOCK2, NAME1, NAME2 FROM {config.MATCHING_TABLE} WHERE (UID1 = '{uid}' AND UID2 = '{rec_uid}') OR (UID1 = '{rec_uid}' AND UID2= '{uid}')"
     matching_connect.cursor.execute(sql_fetch)
@@ -770,14 +781,14 @@ def action():
     # Right now we do not provide option to retract your response
     elif action == 'align':
         align_col = f'ALIGN{primary+1}'
-        update_sql = f"""
-                        UPDATE {config.MATCHING_TABLE}
-                        SET {align_col} = TRUE, UPDATED = '{current_time}'
-                        WHERE UID1 = '{result[0]}' AND UID2 = '{result[1]}'
-                        """
+
+        if align_col not in valid_cols:
+            log.warning(f'{align_col} not a valid column')
+
+        update_sql = f"UPDATE {config.MATCHING_TABLE} SET {align_col} = {True}, UPDATED = '{current_time}' WHERE UID1 = '{result[0]}' AND UID2 = '{result[1]}'"
         matching_connect.cursor.execute(update_sql)
 
-        if result[4] == True and result[5] == True:
+        if result[5] == True and result[6] == True:
             queue = 'MATCHED'
             message = f'You have been matched with the {recommended_user_name}.'
         else:
@@ -786,15 +797,13 @@ def action():
 
         user_align = True
 
-    # TODO: Add message to s3
-
     matching_connect.conn.commit()
     matching_connect.close()
 
     # Creates and destroys event loop
     #asyncio.run(put_yaml_to_s3(uid, [{'message' : message, 'updated' : current_time}]))
 
-    threading.Thread(target=run_async_task, args=(update_notifications_or_chats(uid, [{'message' : message, 'updated' : current_time}], 'NOTIFICATIONS'),)).start()
+    threading.Thread(target=run_async_task, args=(update_notifications_or_chats(uid, [{'message' : message, 'updated' : current_time}], 'notifications'),)).start()
 
     return jsonify({'error' : 'OK', 'queue' : queue, 'user_align' : user_align, 'message' : message, "updated" : current_time})
 
