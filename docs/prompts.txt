@@ -302,3 +302,16 @@ export const config = {
 };
 All requests use FormData format as expected by your Python backend, and the frontend handles the responses to populate the UI accordingly.
 
+
+# Jun 10th
+I have updated account:login response from the backend. Now account:login will provide you all the information needed to create the user profile page. Here are the keys in response json: {'LOGIN': 'SUCCESSFUL', 'UID' : uid, 'NAME' : name, 'DOB' : dob, 'CITY': city, 'COUNTRY': country, 'IMAGES' : images, 'HOBBIES' : hobbies, 
+'PROFESSION' : profession, 'GENDER' : gender, 'RECOMMENDATION_CARDS':recommendation_cards, 'NOTIFICATIONS' : notifications, 'MESSAGE' : message, 'ERROR' : 'OK'}, where IMAGES are binary encoded user profile images. Now instead of different queues like "awaiting", "recommendations" etc, I have provided only "RECOMMENDATION_CARDS". It is a list of dicts (a dict for each user card) which will have following keys: {"recommendation_uid" : recommended_id, "score" : score, "chat_enabled" : chat_enabled, "queue" : queue, "user_align" : usr_align}. Here key "queue" will tell you which tab user belongs to its values are ["AWAITING", "RECOMMENDATIONS", "MATCHED"]. Make sure to cache this info for the login session. And do not wait to fetch info for all user cards before showing the login page. Instead make it so that the cards are populated one by one as you call "get:profile" for each "recommended_uid"
+
+
+After account:login the response contains "NOTIFICATIONS" key which is a list of dicts. Each dict contains two keys - "message" and "updated". 
+Message is text and updated in datetime value when notification was created. 
+Use this to populate user Notifications. Make it so that new notifications are shown as pop overs.
+
+
+After account:login you are populating the entire dashboard with user cards at once. This is tawking too long to open the dashboard. 
+Instead start with an empty dashboard and display each user card as you process the get:profile requests

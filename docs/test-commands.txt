@@ -65,3 +65,16 @@ curl -X POST http://localhost:8080/account:login -F 'metadata={"email": "sobhita
 curl -X GET https://lovebhagya.com/chat:initiate/73a4e3fe-3025-4799-8ede-a1b753f7caae
 
 curl -X POST https://lovebhagya.com/chat:continue -F 'metadata={"uid" : "73a4e3fe-3025-4799-8ede-a1b753f7caae", "user_input" : "I like Calesthenics", "history":}
+
+curl -X GET http://localhost:8080/chat:initiate/f0dc5010-8812-46df-8299-465c1bd4fb6b
+
+curl -X POST http://localhost:8080/chat:continue \
+  -F 'metadata={
+      "uid": "f0dc5010-8812-46df-8299-465c1bd4fb6b",
+      "user_input": "i love travelling to coastal cities",
+      "history": [
+        {"content":"Start a conversation with the user sobhita dhulipala who enjoys hobbies: dancing,reading,fashion,yoga,traveling,photography.\nAsk friendly questions about their hobbies and follow up based on what `they say.\n\nIf no history is provided then initiate a question based on the hobbies otherwise continue the existing conversation.\nTo initiate: If user has no hobbies then ask user something like \"Hey sobhita dhulipala: I was wondering what do you do in your free time? This helps me find better matches for you\"\nOr if the user has hobbies then ask for more details about their hobbies.\n\nKeep the conversation short and dont ask more than two to three questions.\nUsers dont want to chat a lot, continous questions will pester the user so look for ways to say goodbye and end the conversation soon.\n\nIn one conversation do not switch topics, only talk about one user hobby. \n\nYou will also be provided with previous user chats (if any). Unless you have had discussions on all hobbies already, do not discuss a topic that has been previously discussed.\nIf you have already had discussions on all user hobbies you can prompt the user to further discuss a hobby.\n\nEnd with \"Thank you for chatting, this information helps us improve the recommendation algorithm to find better matches for you.\"\n\nNOTE: Do a turn by turn conversation.\n\n*****PREVIOUS CHATS******\n\n\n\n**********END************","role":"system"},{"content":"Hey Sobhita Dhulipala! I was wondering, which hobby do you enjoy the most? I'd love to hear more about it!","role":"assistant"}
+      ],
+      "message": "Hey Arjun Rampal! I was wondering, which hobby do you enjoy the most? Fitness, reading, traveling, photography, music, or biking? This helps me find better matches for you.",
+      "role": "assistant"
+    }'

@@ -617,7 +617,14 @@ def find_profiles():
 
     return jsonify(response_output)
 
-async def update_notifications(uid, new_notifications):
+async def update_notifications_or_chats(uid, new_notifications_or_chats, datatype):
+
+    if datatype == 'notifications':
+        col = 'NOTIFICATIONS'
+    elif datatype == 'destiny_chats':
+        col = 'DESTINY_CHATS'
+    else:
+        log.warning(f"Unsupported datatype/snowflake column: {datatype}. Supported datatypes are ['notifications', 'destiny_chats']")
 
     profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
     select_sql = f"SELECT UID, CREATED, PASSWORD, LOGIN, NOTIFICATIONS FROM {config.PROFILE_TABLE} WHERE UID = '{uid}'"
@@ -636,48 +643,50 @@ async def update_notifications(uid, new_notifications):
         log.warning(f'uid {uid} not found')
 
     if process:
-        notifications_url = result[-1]
+        notifications_or_chats_url = result[-1]
 
-        if notifications_url is None:
+        if notifications_or_chats_url is None:
 
-            notifications = []
+            notifications_or_chats = []
             new_s3_obj = True
 
         else:
             
-            notifications_url_parsed = urlparse(notifications_url)
-            notifications_url = notifications_url_parsed.path.lstrip('/')
+            notifications_or_chats_url_parsed = urlparse(notifications_or_chats_url)
+            notifications_or_chats_url = notifications_or_chats_url_parsed.path.lstrip('/')
 
             # Download image from S3 as bytes
-            s3_object = s3.get_object(Bucket=BUCKET_NAME, Key=notifications_url)
+            s3_object = s3.get_object(Bucket=BUCKET_NAME, Key=notifications_or_chats_url)
             yaml_content = s3_object['Body'].read()
 
             # Parse YAML
-            notifications = yaml.safe_load(yaml_content)
+            notifications_or_chats = yaml.safe_load(yaml_content)
             new_s3_obj = False
 
-        notifications.extend(new_notifications)
+        notifications_or_chats.extend(new_notifications_or_chats)
 
         if new_s3_obj:
-            filename = f'notifications/{uid}_notifications.yaml'
+            filename = f'{datatype}/{uid}_{datatype}.yaml'
             with open(f"{uid}_notifications.yaml", 'w') as file:
-                yaml.dump(notifications, file)
+                yaml.dump(notifications_or_chats, file)
 
-            path = upload_file_to_s3(f"{uid}_notifications.yaml", filename)
-            update_sql = f"UPDATE {config.PROFILE_TABLE} SET NOTIFICATIONS = '{str(path)}' WHERE UID = '{uid}'"
+            path = upload_file_to_s3(f"{uid}_{datatype}.yaml", filename)
+
+            update_sql = f"UPDATE {config.PROFILE_TABLE} SET {col} = '{str(path)}' WHERE UID = '{uid}'"
+            
             profile_connect.cursor.execute(update_sql)
             profile_connect.conn.commit()
 
         else:
             try:
-                updated_yaml_bytes = yaml.dump(notifications).encode('utf-8')
+                updated_yaml_bytes = yaml.dump(notifications_or_chats).encode('utf-8')
 
                 # Step 4: Write back to the same S3 key (overwrite)
-                s3.put_object(Bucket=BUCKET_NAME, Key=notifications_url , Body=updated_yaml_bytes)
-                log.info(f'Yaml object { notifications_url  } updated in S3')
+                s3.put_object(Bucket=BUCKET_NAME, Key=notifications_or_chats_url , Body=updated_yaml_bytes)
+                log.info(f'Yaml object { notifications_or_chats_url  } updated in S3')
 
             except Exception as e:
-                log.warning(f'ERROR: Unable to update { notifications_url } to s3 due to { e }')
+                log.warning(f'ERROR: Unable to update { notifications_or_chats_url } to s3 due to { e }')
 
         profile_connect.close()
 
@@ -780,7 +789,7 @@ def action():
     # Creates and destroys event loop
     #asyncio.run(put_yaml_to_s3(uid, [{'message' : message, 'updated' : current_time}]))
 
-    threading.Thread(target=run_async_task, args=(update_notifications(uid, [{'message' : message, 'updated' : current_time}]),)).start()
+    threading.Thread(target=run_async_task, args=(update_notifications_or_chats(uid, [{'message' : message, 'updated' : current_time}], 'NOTIFICATIONS'),)).start()
 
     return jsonify({'error' : 'OK', 'queue' : queue, 'user_align' : user_align, 'message' : message})
 
@@ -995,14 +1004,15 @@ def load_prompts(filepath: str) -> dict:
 
 @app.route("/chat:initiate/<string:uid>", methods = ["GET"])
 def chat_initiate(uid):
+
     if uid is None:
         return jsonify({"error": "Missing 'uid' in url"}), 400
 
     profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
 
-    columns = ['UID', 'NAME', 'DOB', 'CITY', 'COUNTRY', 'HOBBIES', 'PROFESSION', 'GENDER']
+    columns = ['UID', 'NAME', 'DOB', 'CITY', 'COUNTRY', 'HOBBIES', 'PROFESSION', 'GENDER', 'DESTINY_CHATS']
     columns_string = ', '.join(columns)
-    select_sql = f"SELECT {columns_string} FROM {config.PROFILE_TABLE} WHERE UID= '{uid}'"
+    select_sql = f"SELECT {columns_string} FROM {config.PROFILE_TABLE} WHERE UID = '{uid}'"
     profile_connect.cursor.execute(select_sql)
 
     results = profile_connect.cursor.fetchall()
@@ -1021,8 +1031,43 @@ def chat_initiate(uid):
 
     profile_connect.close()
 
+    chats_url = result[-1]
+
+    if chats_url is None or (type(chats_url) == str and chats_url == ''):
+        chats = []
+        log.info(f'No chats url is None')
+
+    elif type(chats_url) == str:
+        
+        chats_url_parsed = urlparse(chats_url)
+        chats_url = chats_url_parsed.path.lstrip('/')
+
+        try:
+            # Download image from S3 as bytes
+            s3_object = s3.get_object(Bucket=BUCKET_NAME, Key=chats_url)
+            yaml_content = s3_object['Body'].read()
+
+            # Parse YAML
+            chats = yaml.safe_load(yaml_content)
+
+        except Exception as e:
+            log.warning(f'Unable to load chats url {chats_url}')
+            chats = []
+    else:
+        log.warning(f'Chats url is not string: {chats_url}')
+        chats = []
+        
+
+    # TODO: Filter last {n} chats and summarize all from 1 to n-1
+    previous_chats =''
+    for idx, item in enumerate(chats):
+        previous_chats += f'Chat Number: {idx}, Date and Time: {item["updated"]}\n'
+        for convo in item["history"]:
+            if convo["role"] in ["assistant", "user"]:
+                previous_chats += f'role : {convo["role"]}, content: {convo["content"]}'
+
     prompts = load_prompts(config.PROMPTS_YAML)
-    system_prompt = prompts['system_prompt'].format(name = name, hobbies = hobbies)
+    system_prompt = prompts['system_prompt'].format(name = name, hobbies = hobbies, previous_chats = previous_chats)
 
     # Start with system message if no history
     messages = []
@@ -1032,31 +1077,63 @@ def chat_initiate(uid):
         response = llm(messages)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-    messages.append()
+    
     assistant_msg = response.content
 
-    return jsonify({"role": "assistant", "message": assistant_msg})
+    history = [{"role": "system", "content" : system_prompt}, {"role" : "assistant", "content" : assistant_msg}]
+
+    return jsonify({"role": "assistant", "message": assistant_msg, "history": history, "continue" : True })
 
 @app.route("/chat:continue", methods=["POST"])
 def chat():
-    data = request.get_json()
+    metadata = request.form.get('metadata')
+    
+    if not metadata:
+        return jsonify({'error': 'Missing metadata'}), 400
+    try:
+        data = json.loads(metadata)
+    except Exception as e:
+        raise Exception(e)
 
+    uid = data.get("uid")
+    
+    if not uid:
+        return jsonify({"error": "Missing 'uid'"}), 400
+    
     user_input = data.get("user_input")
-    history = data.get("history", [])
 
     if not user_input:
         return jsonify({"error": "Missing 'user_input'"}), 400
     
+    history = data.get("history", [])
+    
     if not history:
         return jsonify({"error": "Missing 'history'"}), 400
+    
+    current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
 
+    if user_input.lower() in ['bye', 'exit', 'quit', 'goodbye']:
+        endphrase_list = ['Thank you for chatting with me! This information helps us find better matches for you.', 'See you later! we will further discuss your hoobie some other time.']
+        goodbye = random.choice(endphrase_list)
+
+        threading.Thread(target=run_async_task, args=(update_notifications_or_chats(uid, [{'history' : history, 'updated' : current_time}], 'NOTIFICATIONS'),)).start()
+
+        # TODO Call upload to s3 function
+        return jsonify({
+            "reply": goodbye,
+            "history": history,
+            "continue": False
+        })
+        
     messages = []
     # Add chat history (reconstruct LangChain message objects)
     for msg in history:
         if msg['role'] == 'user':
-            messages.append(HumanMessage(content=msg['message']))
+            messages.append(HumanMessage(content=msg['content']))
         elif msg['role'] == 'assistant':
-            messages.append(AIMessage(content=msg['message']))
+            messages.append(AIMessage(content=msg['content']))
+        elif msg['role'] == 'system':
+            messages.append(SystemMessage(content=msg['content']))
 
     # Add the latest user input
     messages.append(HumanMessage(content=user_input))
@@ -1075,9 +1152,17 @@ def chat():
         {"role": "assistant", "message": assistant_msg}
     ]
 
+    if 'thank you for chatting with me' in assistant_msg.lower():
+        threading.Thread(target=run_async_task, args=(update_notifications_or_chats(uid, [{'history' : updated_history, 'updated' : current_time}], 'NOTIFICATIONS'),)).start()
+        cont = False
+
+    else:
+        cont = True
+
     return jsonify({
         "reply": assistant_msg,
-        "history": updated_history
+        "history": updated_history,
+        "continue": cont
     })
 
 
