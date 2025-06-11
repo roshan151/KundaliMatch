@@ -4,7 +4,7 @@ import time
 import yaml
 import random
 import base64
-import io
+import asyncio
 from flask import send_file
 from datetime import datetime
 from dotenv import load_dotenv
@@ -13,6 +13,9 @@ import boto3
 from botocore.exceptions import NoCredentialsError
 from uuid import uuid4
 from PIL import Image
+
+import threading
+
 from geopy.geocoders import Nominatim
 #from absl import logging as log 
 
@@ -37,6 +40,9 @@ log.basicConfig(
     level=log.INFO
     )
 
+def run_async_task(coro):
+    asyncio.run(coro)
+
 #log.set_verbosity(log.INFO)
 # Configure AWS s3
 s3 = boto3.client(
@@ -52,7 +58,7 @@ CURRENT_DIR = os.getcwd()
 # Setup your LLM (choose gpt-4o / gpt-3.5-turbo etc.)
 llm = ChatOpenAI(model=config.OPENAI_MODEL_NAME, temperature=0.7)
 
-def upload_image_to_s3(file_path, filename):
+def upload_file_to_s3(file_path, filename):
     try:
         # TODO replace with snowflake {unique key}-image1
 
@@ -70,19 +76,19 @@ def upload_image_to_s3(file_path, filename):
         log.info(f"Upload failed: {e}")
         return None
     
-def download_image_from_s3(filename, download_path):
-    try:
-        # Download file from S3
-        s3.download_file(BUCKET_NAME, filename, download_path)
-        log.info(f"Downloaded {filename} to {download_path}")
-        return download_path
+# def download_image_from_s3(filename, download_path):
+#     try:
+#         # Download file from S3
+#         s3.download_file(BUCKET_NAME, filename, download_path)
+#         log.info(f"Downloaded {filename} to {download_path}")
+#         return download_path
 
-    except NoCredentialsError:
-        log.info("AWS credentials not found.")
-        return None
-    except Exception as e:
-        log.info(f"Download failed: {e}")
-        return None
+#     except NoCredentialsError:
+#         log.info("AWS credentials not found.")
+#         return None
+#     except Exception as e:
+#         log.info(f"Download failed: {e}")
+#         return None
     
 def process_image(image_path, png_filename):
     try:
@@ -229,7 +235,7 @@ def create():
             path = process_image(image, f'image-{idx}.png')
 
             if path is not None:
-                url = upload_image_to_s3(path, f'profile_pictures/{uid}/image-{idx}.png')
+                url = upload_file_to_s3(path, f'profile_pictures/{uid}/image-{idx}.png')
                 images.append(str(url))
                 png_paths.append(str(path))
         
@@ -313,6 +319,17 @@ def ensure_datetime(value):
     else:
         raise TypeError(f"Unsupported type for datetime conversion: {type(value)}")
 
+async def put_yaml_to_s3(key, yaml_content):
+    try:
+        updated_yaml_bytes = yaml.dump(yaml_content).encode('utf-8')
+
+        # Step 4: Write back to the same S3 key (overwrite)
+        s3.put_object(Bucket=BUCKET_NAME, Key=key, Body=updated_yaml_bytes)
+        log.info(f'Yaml object { key } updated in S3')
+
+    except Exception as e:
+        log.warning(f'ERROR: Unable to update { key } to s3 due to { e }')
+
 
 @app.route('/account:login', methods=['POST'])
 def login():
@@ -337,7 +354,7 @@ def login():
 
     profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
     
-    select_sql = f"SELECT UID, CREATED, PASSWORD, LOGIN FROM {config.PROFILE_TABLE} WHERE EMAIL = '{email}'"
+    select_sql = f"SELECT UID, CREATED, PASSWORD, LOGIN, NAME, DOB, CITY, COUNTRY, IMAGES, HOBBIES, PROFESSION, GENDER, NOTIFICATIONS FROM {config.PROFILE_TABLE} WHERE EMAIL = '{email}'"
     profile_connect.cursor.execute(select_sql)
 
     # GET LAST LOGIN AND UID OF USER
@@ -355,6 +372,14 @@ def login():
         return jsonify({'LOGIN': 'UNSUCCESSFUL', 'ERROR' : 'Password is Incorrect.'})
 
     uid = result[0]
+    name = result[4]
+    dob = result[5]
+    city = result[6]
+    country = result[7]
+    images = get_encoded_images(result[8])
+    hobbies = result[9]
+    profession = result[10]
+    gender = result[11]
     created = result[1]
     last_login = result[3]
 
@@ -362,14 +387,30 @@ def login():
         last_login = created
 
     last_login = ensure_datetime(last_login)
+    notifications_url = result[-1]
+
+    if notifications_url is None:
+        notifications = []
+
+        new_s3_obj = True
+
+    else:
+        
+        notifications_url_parsed = urlparse(notifications_url)
+        notifications_url = notifications_url_parsed.path.lstrip('/')
+
+        # Download image from S3 as bytes
+        s3_object = s3.get_object(Bucket=BUCKET_NAME, Key=notifications_url)
+        yaml_content = s3_object['Body'].read()
+
+        # Parse YAML
+        notifications = yaml.safe_load(yaml_content)
+        new_s3_obj = False
     
     update_sql = f"UPDATE {config.PROFILE_TABLE} SET LOGIN = '{current_time}' WHERE UID = '{uid}'"
     profile_connect.cursor.execute(update_sql)
-    profile_connect.conn.commit()
-    profile_connect.close()
 
     matching_connect  = SnowConnect(config.MATCHING_TABLE_WAREHOUSE, config.MATCHING_TABLE_DATABASE, config.MATCHING_TABLE_SCHEMA)
-
     sql_fetch = f"SELECT UID1, UID2, SCORE, UPDATED, ALIGN1, ALIGN2, SKIP1, SKIP2, BLOCK1, BLOCK2, NAME1, NAME2 FROM {config.MATCHING_TABLE} WHERE UID1 = '{uid}' OR UID2 = '{uid}'"
     cursor_matching = matching_connect.conn.cursor()
     cursor_matching.execute(sql_fetch)
@@ -377,7 +418,7 @@ def login():
 
     # We need 4 queues in UI - recommendations, notifications, awaiting responses, matched.
     # Segregate recommendations from notifications
-    recommendations, notifications, matched, awaiting = [], [], [], []
+    recommendation_cards = []
     if len(results)>0:
         for result in results:
             # Last element is True or False Letting UI know if threy need to allow chat feature
@@ -400,23 +441,85 @@ def login():
                 continue
 
             if usr_align == False and rec_align == False: # This is align buttons of both users
-                recommendations.append([recommended_id, score, usr_align, rec_align, usr_skip, rec_skip, False])
+                queue = 'RECOMMENDATIONS'
+                chat_enabled = False
             
             elif usr_align == True and rec_align == True: # Checking if both align
                 if updated_time > last_login:
                     message = f'NOTIFICATION: You have aligned with {rec_name}'
-                matched.append([recommended_id, score, usr_align, rec_align, usr_skip, rec_skip, True])
+                    notifications.append({'message' : message, 'updated' : updated_time})
+                queue = 'MATCHED'
+                chat_enabled = True
 
             else:
                 if updated_time > last_login:
                     if rec_align == True:
                         message = f'NOTIFICATION: {rec_name} requested to align with you'
-                awaiting.append([recommended_id, score, usr_align, rec_align, usr_skip, rec_skip, True])
+                        notifications.append({'message' : message, 'updated' : updated_time})
+
+                    queue = 'AWAITING'
+                    chat_enabled = False
+    
+            recommendation_cards.append({"recommendation_uid" : recommended_id, "score" : score, "chat_enabled" : chat_enabled, "queue" : queue, "user_align" : usr_align})
     
     matching_connect.conn.commit()
     matching_connect.close()
+
+    if new_s3_obj:
+        filename = f'notifications/{uid}_notifications.yaml'
+
+        with open(f"{uid}_notifications.yaml", 'w') as file:
+            yaml.dump(notifications, file)
+
+        path = upload_file_to_s3(f"{uid}_notifications.yaml", filename)
+        update_sql = f"UPDATE {config.PROFILE_TABLE} SET NOTIFICATIONS = '{str(path)}' WHERE UID = '{uid}'"
+        profile_connect.cursor.execute(update_sql)
+
+    else:
+        #asyncio.run(put_yaml_to_s3(notifications, notifications_url_parsed))
+        threading.Thread(target=run_async_task, args=(put_yaml_to_s3(str(notifications_url), notifications),)).start()
+
+    profile_connect.conn.commit()
+    profile_connect.close()
     
-    return {'LOGIN': 'SUCCESSFUL', 'UID' : uid, 'RECOMMENDATIONS' : recommendations, 'MATCHED' : matched, 'AWAITING' : awaiting, 'MESSAGE' : message, 'ERROR' : 'OK'}
+    # TODO: Add notifications
+    
+    return {'LOGIN': 'SUCCESSFUL', 'UID' : uid, 'NAME' : name, 'DOB' : dob, 'CITY': city, 'COUNTRY': country, 'IMAGES' : images, 'HOBBIES' : hobbies, 
+            'PROFESSION' : profession, 'GENDER' : gender, 'RECOMMENDATION_CARDS':recommendation_cards, 'NOTIFICATIONS' : notifications, 'MESSAGE' : message, 'ERROR' : 'OK'}
+
+
+def get_encoded_images(image_paths):
+    '''
+        Download multiple images from s3
+    '''
+
+    image_data_list = []
+    if isinstance(image_paths, str) and len(image_paths)>0:
+        images = [image.strip() for image in image_paths.split(',')]
+
+        log.info(f'Len Images: {len(images)}, {images}')
+        if images and isinstance(images, list) and len(images) > 0:
+            try:
+                for path in images:
+                    if path == '':
+                        continue
+                    try:
+                        parsed = urlparse(path)
+                        image_key = parsed.path.lstrip('/')
+                        # Download image from S3 as bytes
+                        s3_object = s3.get_object(Bucket=BUCKET_NAME, Key=image_key)
+                        image_bytes = s3_object['Body'].read()
+                        encoded_image = base64.b64encode(image_bytes).decode('utf-8')
+                        image_data_list.append({
+                            "filename": path,
+                            "data": encoded_image
+                        })
+                    except Exception as e:
+                        log.warning(f"Failed to load image {path}: {e}")
+            except Exception as e:
+                log.warning(f"Failed to parse IMAGES field: {e}")
+
+    return image_data_list
 
 @app.route('/get:profile/<string:uid>', methods=['GET'])
 def get_profile(uid):
@@ -449,36 +552,14 @@ def get_profile(uid):
             continue
         output[name] = result[idx]
 
-    
     # Convert image S3 paths to base64-encoded image data
     image_paths = result[columns.index('IMAGES')]
-    image_data_list = []
 
-    log.info(f'Len image paths: {len(image_paths)}, {image_paths}')
-    if isinstance(image_paths, str) and len(image_paths)>0:
-        images = [image.strip() for image in image_paths.split(',')]
-
-        log.info(f'Len Images: {len(images)}, {images}')
-        if images and isinstance(images, list) and len(images) > 0:
-            try:
-                for path in images:
-                    if path == '':
-                        continue
-                    try:
-                        parsed = urlparse(path)
-                        image_key = parsed.path.lstrip('/')
-                        # Download image from S3 as bytes
-                        s3_object = s3.get_object(Bucket=BUCKET_NAME, Key=image_key)
-                        image_bytes = s3_object['Body'].read()
-                        encoded_image = base64.b64encode(image_bytes).decode('utf-8')
-                        image_data_list.append({
-                            "filename": path,
-                            "data": encoded_image
-                        })
-                    except Exception as e:
-                        log.warning(f"Failed to load image {path}: {e}")
-            except Exception as e:
-                log.warning(f"Failed to parse IMAGES field: {e}")
+    try:
+        image_data_list = get_encoded_images(image_paths)
+    except Exception as e:
+        log.warning(f'Unable to get images for {image_paths}')
+        image_data_list = []
 
     output['IMAGES'] = image_data_list
     output['error'] = 'OK'
@@ -536,6 +617,70 @@ def find_profiles():
 
     return jsonify(response_output)
 
+async def update_notifications(uid, new_notifications):
+
+    profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
+    select_sql = f"SELECT UID, CREATED, PASSWORD, LOGIN, NOTIFICATIONS FROM {config.PROFILE_TABLE} WHERE UID = '{uid}'"
+    profile_connect.cursor.execute(select_sql)
+
+    results = profile_connect.cursor.fetchall()
+    
+    process = True
+    if len(results)>1:
+        log.warning(f'uid {uid} is not unique')
+        result = results[-1]
+    elif len(results)==1:
+        result = results[0]
+    else:
+        process = False
+        log.warning(f'uid {uid} not found')
+
+    if process:
+        notifications_url = result[-1]
+
+        if notifications_url is None:
+
+            notifications = []
+            new_s3_obj = True
+
+        else:
+            
+            notifications_url_parsed = urlparse(notifications_url)
+            notifications_url = notifications_url_parsed.path.lstrip('/')
+
+            # Download image from S3 as bytes
+            s3_object = s3.get_object(Bucket=BUCKET_NAME, Key=notifications_url)
+            yaml_content = s3_object['Body'].read()
+
+            # Parse YAML
+            notifications = yaml.safe_load(yaml_content)
+            new_s3_obj = False
+
+        notifications.extend(new_notifications)
+
+        if new_s3_obj:
+            filename = f'notifications/{uid}_notifications.yaml'
+            with open(f"{uid}_notifications.yaml", 'w') as file:
+                yaml.dump(notifications, file)
+
+            path = upload_file_to_s3(f"{uid}_notifications.yaml", filename)
+            update_sql = f"UPDATE {config.PROFILE_TABLE} SET NOTIFICATIONS = '{str(path)}' WHERE UID = '{uid}'"
+            profile_connect.cursor.execute(update_sql)
+            profile_connect.conn.commit()
+
+        else:
+            try:
+                updated_yaml_bytes = yaml.dump(notifications).encode('utf-8')
+
+                # Step 4: Write back to the same S3 key (overwrite)
+                s3.put_object(Bucket=BUCKET_NAME, Key=notifications_url , Body=updated_yaml_bytes)
+                log.info(f'Yaml object { notifications_url  } updated in S3')
+
+            except Exception as e:
+                log.warning(f'ERROR: Unable to update { notifications_url } to s3 due to { e }')
+
+        profile_connect.close()
+
 @app.route('/account:action', methods=['POST'])
 def action():
     metadata = request.form.get('metadata')
@@ -564,6 +709,7 @@ def action():
             return jsonify({"error": "action field invalid, expects skip or align"}), 400
     else:
         return jsonify({"error": "action is not string"}), 400
+    
     
     # user_name = json_data.get('user_name' , None)
     # if user_name is None:
@@ -597,12 +743,15 @@ def action():
     primary = 0 if result[0] == uid else 1
     rec_idx = 1 if primary == 0 else 0
     recommended_user_name = result[10+rec_idx]
+
     if action == 'skip':
 
         delete_sql = f"DELETE FROM {config.MATCHING_TABLE} WHERE UID1 = '{result[0]}' AND UID2 ='{result[1]}'"
         matching_connect.cursor.execute(delete_sql)
         queue = 'None'
         message = f'{recommended_user_name} will not be recommended to you.'
+
+        user_align = False
 
     # Right now we do not provide option to retract your response
     elif action == 'align':
@@ -621,10 +770,19 @@ def action():
             queue = 'AWAITING'
             message = f'Align request has been sent to {recommended_user_name}'
 
+        user_align = True
+
+    # TODO: Add message to s3
+
     matching_connect.conn.commit()
     matching_connect.close()
 
-    return jsonify({'error' : 'OK', 'queue' : queue, 'message' : message})
+    # Creates and destroys event loop
+    #asyncio.run(put_yaml_to_s3(uid, [{'message' : message, 'updated' : current_time}]))
+
+    threading.Thread(target=run_async_task, args=(update_notifications(uid, [{'message' : message, 'updated' : current_time}]),)).start()
+
+    return jsonify({'error' : 'OK', 'queue' : queue, 'user_align' : user_align, 'message' : message})
 
 
 # Before making the create:account call, UI should make verify:email call to ensure emails are unique 
@@ -709,7 +867,7 @@ def update_account():
         for idx, image in enumerate(profile_images[:config.MAX_IMAGES]):
             path = process_image(image, f'image-{idx}.png')
             if path:
-                url = upload_image_to_s3(path, f'profile_pictures/{uid}/image-{idx}.png')
+                url = upload_file_to_s3(path, f'profile_pictures/{uid}/image-{idx}.png')
                 images.append(str(url))
                 png_paths.append(path)
 
@@ -874,7 +1032,7 @@ def chat_initiate(uid):
         response = llm(messages)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
+    messages.append()
     assistant_msg = response.content
 
     return jsonify({"role": "assistant", "message": assistant_msg})

@@ -53,10 +53,15 @@ curl -X POST http://localhost:8080/account:login -F 'metadata={"email": "hrithik
 
 curl -X GET https://lovebhagya.com/get:profile/458c481e-c6e7-48db-ae3b-53f71c85d618
 
-curl -X POST http://localhost:8080/account:action -F 'metadata={"uid" : "63047d6c-98a9-4690-a07f-5b2b5f360bbb", "action" : "align", "recommendation_uid" : "6ad3d5aa-ad06-4c46-869f-f36bbbd99922"}'
+curl -X POST https://lovebhagya.com/account:action -F 'metadata={"uid" : "63047d6c-98a9-4690-a07f-5b2b5f360bbb", "action" : "align", "recommendation_uid" : "6ad3d5aa-ad06-4c46-869f-f36bbbd99922"}'
 
 curl -X POST https://lovebhagya.com/account:login -F 'metadata={"email": "sobhita.d@example.com", "password" : "sobhitaD92!"}'
 
-curl -X POST https://localhost:8080/account:update -F 'metadata={"uid" :"ac02ee31-0f65-48e8-9f94-22f574d85700", "password" : "sobhitaD92!"}'
+curl -X POST http://localhost:8080/account:update -F 'metadata={"uid" :"ac02ee31-0f65-48e8-9f94-22f574d85700", "password" : "sobhitaD92!"}'
+
+curl -X POST http://localhost:8080/account:login -F 'metadata={"email": "sobhita.d@example.com", "password" : "sobhitaD92!"}'
+
 
 curl -X GET https://lovebhagya.com/chat:initiate/73a4e3fe-3025-4799-8ede-a1b753f7caae
+
+curl -X POST https://lovebhagya.com/chat:continue -F 'metadata={"uid" : "73a4e3fe-3025-4799-8ede-a1b753f7caae", "user_input" : "I like Calesthenics", "history":}
