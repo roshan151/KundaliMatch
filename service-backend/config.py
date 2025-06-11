@@ -19,5 +19,6 @@ class Config:
     KUNDALI_SERVICE_PORT = "8000"
     PROMPTS_YAML = 'prompts.yaml'
     OPENAI_MODEL_NAME = "gpt-4o-mini"
+    MAX_DESTINY_CHAT = 15
 
 config = Config()

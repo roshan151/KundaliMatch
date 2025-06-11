@@ -168,6 +168,10 @@ def compute_score(user_1 : list, user_2 : list):
 
 app = Flask(__name__)
 
+@app.route('/')
+def health_check():
+    return 'OK', 200
+
 # @app.route('/twillio:token', methods=['POST'])
 # def generate_token():
 #     identity = request.json.get('identity')
@@ -438,9 +442,10 @@ def login():
             message = None
 
             if usr_skip == True or rec_skip == True: # This is skip bitton
+                chat_enabled = False
                 continue
 
-            if usr_align == False and rec_align == False: # This is align buttons of both users
+            elif usr_align == False and rec_align == False: # This is align buttons of both users
                 queue = 'RECOMMENDATIONS'
                 chat_enabled = False
             
@@ -458,7 +463,7 @@ def login():
                         notifications.append({'message' : message, 'updated' : updated_time})
 
                     queue = 'AWAITING'
-                    chat_enabled = False
+                chat_enabled = False
     
             recommendation_cards.append({"recommendation_uid" : recommended_id, "score" : score, "chat_enabled" : chat_enabled, "queue" : queue, "user_align" : usr_align})
     
@@ -791,7 +796,7 @@ def action():
 
     threading.Thread(target=run_async_task, args=(update_notifications_or_chats(uid, [{'message' : message, 'updated' : current_time}], 'NOTIFICATIONS'),)).start()
 
-    return jsonify({'error' : 'OK', 'queue' : queue, 'user_align' : user_align, 'message' : message})
+    return jsonify({'error' : 'OK', 'queue' : queue, 'user_align' : user_align, 'message' : message, "updated" : current_time})
 
 
 # Before making the create:account call, UI should make verify:email call to ensure emails are unique 
@@ -1120,13 +1125,14 @@ def chat():
 
         # TODO Call upload to s3 function
         return jsonify({
-            "reply": goodbye,
+            "message": goodbye,
             "history": history,
             "continue": False
         })
         
     messages = []
     # Add chat history (reconstruct LangChain message objects)
+    count = 0
     for msg in history:
         if msg['role'] == 'user':
             messages.append(HumanMessage(content=msg['content']))
@@ -1135,16 +1141,25 @@ def chat():
         elif msg['role'] == 'system':
             messages.append(SystemMessage(content=msg['content']))
 
+        count += 1
+
     # Add the latest user input
     messages.append(HumanMessage(content=user_input))
 
-    # Get response from LLM
-    try:
-        response = llm(messages)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    if count <= config.MAX_DESTINY_CHAT:
 
-    assistant_msg = response.content
+        # Get response from LLM
+        try:
+            response = llm(messages)
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+        assistant_msg = response.content
+        cont = True
+
+    else:
+        assistant_msg = 'I have been instructed to keep the conversations short. Thank you for chatting with me! This information helps us find better matches for you.'
+        cont = False
 
     # Update history
     updated_history = history + [
@@ -1156,11 +1171,8 @@ def chat():
         threading.Thread(target=run_async_task, args=(update_notifications_or_chats(uid, [{'history' : updated_history, 'updated' : current_time}], 'NOTIFICATIONS'),)).start()
         cont = False
 
-    else:
-        cont = True
-
     return jsonify({
-        "reply": assistant_msg,
+        "message": assistant_msg,
         "history": updated_history,
         "continue": cont
     })
