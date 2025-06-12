@@ -69,7 +69,7 @@ def get_score():
     json_data = request.get_json()
     if not json_data:
         return jsonify({'error': 'Missing data'}), 400
-    
+    log.info('Added logging to change docker tag')
     try:
         dob1 = parse_date(json_data['DOB1'])
         dob2 = parse_date(json_data['DOB2'])

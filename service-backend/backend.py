@@ -188,8 +188,6 @@ def health_check():
 
 #     return jsonify({'token': token.to_jwt().decode()})
 
-
-
 @app.route('/account:create', methods=['POST'])
 def create():
     # Recieve multipart request
@@ -337,184 +335,135 @@ async def put_yaml_to_s3(key, yaml_content):
 
 @app.route('/account:login', methods=['POST'])
 def login():
-    # We will use user email to fetch all data
-    metadata = request.form.get('metadata')
-    if not metadata:
-        return jsonify({'error': 'Missing metadata'}), 400
-    try:
-        json_data = json.loads(metadata)
-    except Exception as e:
-        raise Exception(e)
+    if not request.is_json:
+        return jsonify({'error': 'Content-Type must be application/json'}), 400
 
-    email = json_data.get('email', None)
-    if email is None:
-        return jsonify({"error": "Missing 'email' field"}), 400
+    json_data = request.get_json()
+    if not json_data:
+        return jsonify({'error': 'Missing JSON data'}), 400
+
+    email = json_data.get('email')
+    password = json_data.get('password')
     
-    password = json_data.get('password', None)
-    if password is None:
-        return jsonify({"error": "Missing 'password' field"}), 400
+    if not email or not password:
+        return jsonify({'error': 'Missing email or password'}), 400
 
-    current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
 
     profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
-    
-    select_sql = f"SELECT UID, CREATED, PASSWORD, LOGIN, NAME, DOB, CITY, COUNTRY, IMAGES, HOBBIES, PROFESSION, GENDER, NOTIFICATIONS FROM {config.PROFILE_TABLE} WHERE EMAIL = '{email}'"
+    select_sql = f"SELECT UID, PASSWORD, NOTIFICATIONS FROM {config.PROFILE_TABLE} WHERE EMAIL = '{email}'"
     profile_connect.cursor.execute(select_sql)
-
-    # GET LAST LOGIN AND UID OF USER
     results = profile_connect.cursor.fetchall()
-    if len(results)>1:
-        log.warning(f'Email {email} is not unique')
-        result = results[-1]
-    elif len(results)==1:
-        result = results[0]
-    else:
-        log.info(f'No user with email { email } found')
-        return jsonify({'LOGIN': 'UNSUCCESSFUL', 'ERROR' : 'Email not found.'})
-    
-    if password != result[2]:
-        return jsonify({'LOGIN': 'UNSUCCESSFUL', 'ERROR' : 'Password is Incorrect.'})
+
+    if not results:
+        return jsonify({'LOGIN': 'UNSUCCESSFUL', 'ERROR': 'Email not found.'})
+    result = results[-1] if len(results) > 1 else results[0]
+    if password != result[1]:
+        return jsonify({'LOGIN': 'UNSUCCESSFUL', 'ERROR': 'Password is Incorrect.'})
 
     uid = result[0]
-    name = result[4]
-    dob = result[5]
-    city = result[6]
-    country = result[7]
-    images = get_encoded_images(result[8])
-    hobbies = result[9]
-    profession = result[10]
-    gender = result[11]
-    created = result[1]
-    last_login = result[3]
-
-    if last_login is None:
-        last_login = created
-
-    last_login = ensure_datetime(last_login)
-    notifications_url = result[-1]
-
-    if notifications_url is None:
-        notifications = []
-
-        new_s3_obj = True
-
-    else:
-        
-        notifications_url_parsed = urlparse(notifications_url)
-        notifications_url = notifications_url_parsed.path.lstrip('/')
-
-        try:
-            # Download image from S3 as bytes
-            s3_object = s3.get_object(Bucket=BUCKET_NAME, Key=notifications_url)
-            yaml_content = s3_object['Body'].read()
-
-            # Parse YAML
-            notifications = yaml.safe_load(yaml_content)
-        except Exception as e:
-            log.info(f'No such key found or not a valid yaml: {notifications_url}')
-            notifications = []
-
-        new_s3_obj = False
-    
+    current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
     update_sql = f"UPDATE {config.PROFILE_TABLE} SET LOGIN = '{current_time}' WHERE UID = '{uid}'"
     profile_connect.cursor.execute(update_sql)
+    profile_connect.conn.commit()
+    profile_connect.close()
 
-    matching_connect  = SnowConnect(config.MATCHING_TABLE_WAREHOUSE, config.MATCHING_TABLE_DATABASE, config.MATCHING_TABLE_SCHEMA)
-    sql_fetch = f"SELECT UID1, UID2, SCORE, UPDATED, ALIGN1, ALIGN2, SKIP1, SKIP2, BLOCK1, BLOCK2, NAME1, NAME2 FROM {config.MATCHING_TABLE} WHERE UID1 = '{uid}' OR UID2 = '{uid}'"
-    cursor_matching = matching_connect.conn.cursor()
-    cursor_matching.execute(sql_fetch)
-    results = cursor_matching.fetchall()
-
-    # We need 4 queues in UI - recommendations, notifications, awaiting responses, matched.
-    # Segregate recommendations from notifications
-    recommendation_cards = []
-    recommended_uids = []
-
-    log.info(f'User uid: {uid}')
-    if len(results)>0:
-        for result in results:
-            # Last element is True or False Letting UI know if threy need to allow chat feature
-
-            if str(result[0]) == str(uid):
-                log.info(f'First uid is user: {result[0]}')
-                usr_idx = 0
-                rec_idx = 1
-            elif str(result[1]) == str(uid):
-                log.info(f'Second uid is user: {result[1]}')
-                usr_idx = 1
-                rec_idx = 0
-            else:
-                log.info(f'No match for usr uid {uid}, {result[0]}, {result[1]}')
-
-            recommended_id = result[rec_idx]
-            rec_align = result[4+rec_idx] ## This is align bitton of recommended profile
-            usr_align = result[4+usr_idx]   # This is align bitton ofs user
-            rec_skip = result[6+rec_idx] ## This is skip bitton of recommended profile
-            usr_skip = result[6+usr_idx] # This is skip bitton of user
-
-            score = result[2]
-            rec_name = result[10+rec_idx]
-            log.info(result)
-            log.info(f'{recommended_id}, {rec_align}, {usr_align}, {rec_skip}, {usr_skip}')
-
-            updated_time = ensure_datetime(result[3])
-
-            message = None
-
-            if usr_skip == True or rec_skip == True: # This is skip bitton
-                chat_enabled = False
-                continue
-
-            elif usr_align == False and rec_align == False: # This is align buttons of both users
-                queue = 'RECOMMENDATIONS'
-                chat_enabled = False
-            
-            elif usr_align == True and rec_align == True: # Checking if both align
-                if updated_time > last_login:
-                    message = f'NOTIFICATION: You have aligned with {rec_name}'
-                    notifications.append({'message' : message, 'updated' : updated_time})
-                queue = 'MATCHED'
-                chat_enabled = True
-
-            else:
-                if updated_time > last_login:
-                    if rec_align == True:
-                        message = f'NOTIFICATION: {rec_name} requested to align with you'
-                        notifications.append({'message' : message, 'updated' : updated_time})
-
-                queue = 'AWAITING'
-                chat_enabled = False
-
-            log.info({"recommendation_uid" : recommended_id, "score" : score, "chat_enabled" : chat_enabled, "queue" : queue, "user_align" : usr_align})
-            
-            if recommended_id not in recommended_uids and recommended_id != uid:
-                recommendation_cards.append({"recommendation_uid" : recommended_id, "score" : score, "chat_enabled" : chat_enabled, "queue" : queue, "user_align" : usr_align})
-                recommended_uids.append(recommended_id)
-                
-    matching_connect.conn.commit()
-    matching_connect.close()
-
-    if new_s3_obj:
-        filename = f'notifications/{uid}_notifications.yaml'
-
-        with open(f"{uid}_notifications.yaml", 'w') as file:
-            yaml.dump(notifications, file)
-
-        path = upload_file_to_s3(f"{uid}_notifications.yaml", filename)
-        update_sql = f"UPDATE {config.PROFILE_TABLE} SET NOTIFICATIONS = '{str(path)}' WHERE UID = '{uid}'"
-        profile_connect.cursor.execute(update_sql)
-
+    notifications_url = result[2]
+    if notifications_url:
+        try:
+            key = urlparse(notifications_url).path.lstrip('/')
+            s3_object = s3.get_object(Bucket=BUCKET_NAME, Key=key)
+            yaml_content = s3_object['Body'].read()
+            notifications = yaml.safe_load(yaml_content)
+        except Exception:
+            notifications = []
     else:
-        #asyncio.run(put_yaml_to_s3(notifications, notifications_url_parsed))
-        threading.Thread(target=run_async_task, args=(put_yaml_to_s3(str(notifications_url), notifications),)).start()
+        notifications = []
+
+    return jsonify({'LOGIN': 'SUCCESSFUL', 'UID': uid, 'NOTIFICATIONS' : notifications, 'ERROR': 'OK'})
+
+@app.route('/get:user/<uid>', methods=['GET'])
+def get_user(uid):
+    profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
+    select_sql = f"SELECT NAME, DOB, CITY, COUNTRY, IMAGES, HOBBIES, PROFESSION, GENDER, NOTIFICATIONS FROM {config.PROFILE_TABLE} WHERE UID = '{uid}'"
+    profile_connect.cursor.execute(select_sql)
+    result = profile_connect.cursor.fetchone()
+
+    if not result:
+        return jsonify({'error': 'User not found'}), 404
+
+    image_path_list = [i.strip() for i in str(result[4]).split(',')]
+    user_data = {
+        'UID': uid,
+        'NAME': result[0],
+        'DOB': result[1],
+        'CITY': result[2],
+        'COUNTRY': result[3],
+        'IMAGES': image_path_list,
+        'HOBBIES': result[5],
+        'PROFESSION': result[6],
+        'GENDER': result[7],
+        'ERROR': 'OK'
+    }
 
     profile_connect.conn.commit()
     profile_connect.close()
-    
-    # TODO: Add notifications
-    
-    return {'LOGIN': 'SUCCESSFUL', 'UID' : uid, 'NAME' : name, 'DOB' : dob, 'CITY': city, 'COUNTRY': country, 'IMAGES' : images, 'HOBBIES' : hobbies, 
-            'PROFESSION' : profession, 'GENDER' : gender, 'RECOMMENDATION_CARDS':recommendation_cards, 'NOTIFICATIONS' : notifications, 'MESSAGE' : message, 'ERROR' : 'OK'}
+
+    return jsonify(user_data)
+
+def fetch_queue(uid, queue_requested):
+    matching_connect = SnowConnect(config.MATCHING_TABLE_WAREHOUSE, config.MATCHING_TABLE_DATABASE, config.MATCHING_TABLE_SCHEMA)
+    sql = f"SELECT UID1, UID2, SCORE, UPDATED, ALIGN1, ALIGN2, SKIP1, SKIP2, BLOCK1, BLOCK2, NAME1, NAME2 FROM {config.MATCHING_TABLE} WHERE UID1 = '{uid}' OR UID2 = '{uid}'"
+    cursor = matching_connect.conn.cursor()
+    cursor.execute(sql)
+    results = cursor.fetchall()
+    cursor.close()
+
+    cards = []
+    for row in results:
+        uid1, uid2, score, updated, a1, a2, s1, s2, b1, b2, n1, n2 = row
+        usr_idx = 0 if uid == uid1 else 1
+        rec_idx = 1 - usr_idx
+        usr_align, rec_align = (a1, a2) if usr_idx == 0 else (a2, a1)
+        usr_skip, rec_skip = (s1, s2) if usr_idx == 0 else (s2, s1)
+
+        if usr_skip or rec_skip:
+            continue
+        if usr_align and rec_align:
+            queue = 'MATCHES'
+        elif not usr_align and not rec_align:
+            queue = 'RECOMMENDATIONS'
+        else:
+            queue = 'AWAITING'
+
+        if queue != queue_requested:
+            continue
+
+        recommendation_uid = uid2 if uid1 == uid else uid1
+        name = n2 if uid1 == uid else n1
+
+        cards.append({
+            'recommendation_uid': recommendation_uid,
+            'name': name,
+            'score': score,
+            'chat_enabled': usr_align and rec_align,
+            'user_align': usr_align
+        })
+
+    matching_connect.conn.commit()
+    matching_connect.close()
+    return cards
+
+@app.route('/get:awaiting/<uid>', methods=['GET'])
+def get_awaiting(uid):
+    return jsonify({'cards': fetch_queue(uid, 'AWAITING')})
+
+@app.route('/get:recommendations/<uid>', methods=['GET'])
+def get_recommendations(uid):
+    return jsonify({'cards': fetch_queue(uid, 'RECOMMENDATIONS')})
+
+@app.route('/get:matches/<uid>', methods=['GET'])
+def get_matches(uid):
+    return jsonify({'cards': fetch_queue(uid, 'MATCHES')})
 
 
 def get_encoded_images(image_paths):
@@ -583,14 +532,9 @@ def get_profile(uid):
 
     # Convert image S3 paths to base64-encoded image data
     image_paths = result[columns.index('IMAGES')]
+    image_path_list = [i.strip() for i in image_paths.split(',')]
 
-    try:
-        image_data_list = get_encoded_images(image_paths)
-    except Exception as e:
-        log.warning(f'Unable to get images for {image_paths}')
-        image_data_list = []
-
-    output['IMAGES'] = image_data_list
+    output['IMAGES'] = image_path_list
     output['error'] = 'OK'
 
     return jsonify(output)
@@ -719,52 +663,20 @@ async def update_notifications_or_chats(uid, new_notifications_or_chats, datatyp
 
         profile_connect.close()
 
+# TODO - Make async call to update notifications for the other user
 @app.route('/account:action', methods=['POST'])
 def action():
-    metadata = request.form.get('metadata')
-    if not metadata:
-        return jsonify({'error': 'Missing metadata'}), 400
     try:
-        json_data = json.loads(metadata)
-    except Exception as e:
-        raise Exception(e)
-
-    uid = json_data.get('uid', None)
-    if uid is None:
-        return jsonify({"error": "Missing 'uid' field"}), 400
-    
-    rec_uid = json_data.get('recommendation_uid' , None)
-    if rec_uid is None:
-        return jsonify({"error": "Missing 'recommendation_uid' field"}), 400
-    
-    action = json_data.get('action' , None)
-    if action is None:
-        return jsonify({"error": "Missing action field"}), 400
-    
-    if isinstance(action, str):
-        action = action.lower()
-        if action not in ['skip', 'align']:
-            return jsonify({"error": "action field invalid, expects skip or align"}), 400
-    else:
-        return jsonify({"error": "action is not string"}), 400
-    
-    
-    # user_name = json_data.get('user_name' , None)
-    # if user_name is None:
-    #     return jsonify({"error": "Missing action field"}), 400
-    
-    # if isinstance(user_name, str) and len(user_name) > 0:
-    #     user_name = user_name.lower()
-        
-    # else:
-    #     return jsonify({"error": "user_name not provided"}), 400
+        json_data = request.get_json()
+        uid = json_data.get('uid')
+        rec_uid = json_data.get('recommendation_uid')
+        action = json_data.get('action')
+        assert action in ['align', 'skip']
+    except:
+        return jsonify({'error': 'Invalid JSON or missing uid/recommendation_uid/action'}), 400
     
     current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
 
-    # Action can be whatsapp1, whatsapp2, insta1, insta2, snap1, snap2, or skip
-    action = json_data.get('action', None)
-    if action is None:
-        return jsonify({"error": "Missing 'action' field"}), 400
     valid_cols = ['UID1', 'UID2', 'SCORE', 'UPDATED', 'ALIGN1', 'ALIGN2', 'SKIP1', 'SKIP2', 'BLOCK1', 'BLOCK2', 'NAME1', 'NAME2']
     matching_connect = SnowConnect(config.MATCHING_TABLE_WAREHOUSE, config.MATCHING_TABLE_DATABASE, config.MATCHING_TABLE_SCHEMA)
     
@@ -817,7 +729,7 @@ def action():
         if result[4+rec_idx] == True:
             queue = 'MATCHED'
             message = f'You have been matched with the {recommended_user_name}.'
-            
+
         else:
             queue = 'AWAITING'
             message = f'Align request has been sent to {recommended_user_name}'
@@ -838,19 +750,11 @@ def action():
 # Before making the create:account call, UI should make verify:email call to ensure emails are unique 
 @app.route('/verify:email', methods=['POST'])
 def verify_email():
-    
-    metadata = request.form.get('metadata')
-    
-    if not metadata:
-        return jsonify({'error': 'Missing metadata'}), 400
     try:
-        json_data = json.loads(metadata)
-    except Exception as e:
-        raise Exception(e)
-
-    email = json_data.get( 'email', None )
-    if email is None:
-        return jsonify({"error": "Missing 'email' field"}), 400
+        json_data = request.get_json()
+        email = json_data.get('email')
+    except:
+        return jsonify({'error': 'Invalid JSON or missing email'}), 400
     
     log.info(f"Username: {os.getenv('SNOWFLAKE_USERNAME')}, Account_id: {os.getenv('SNOWFLAKE_ACCOUNT_ID')}")
 
@@ -1127,29 +1031,14 @@ def chat_initiate(uid):
 
 @app.route("/chat:continue", methods=["POST"])
 def chat():
-    metadata = request.form.get('metadata')
-    
-    if not metadata:
-        return jsonify({'error': 'Missing metadata'}), 400
+
     try:
-        data = json.loads(metadata)
-    except Exception as e:
-        raise Exception(e)
-
-    uid = data.get("uid")
-    
-    if not uid:
-        return jsonify({"error": "Missing 'uid'"}), 400
-    
-    user_input = data.get("user_input")
-
-    if not user_input:
-        return jsonify({"error": "Missing 'user_input'"}), 400
-    
-    history = data.get("history", [])
-    
-    if not history:
-        return jsonify({"error": "Missing 'history'"}), 400
+        json_data = request.get_json()
+        uid = json_data.get('uid')
+        user_input = json_data.get('user_input')
+        history = json_data.get('history')
+    except:
+        return jsonify({'error': 'Invalid JSON or missing uid/user_input/history'}), 400
     
     current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
 
@@ -1158,7 +1047,7 @@ def chat():
         goodbye = random.choice(endphrase_list)
 
         threading.Thread(target=run_async_task, args=(update_notifications_or_chats(uid, [{'history' : history, 'updated' : current_time}], 'NOTIFICATIONS'),)).start()
-
+        history.extend([{"role" : "user", "content": f"{user_input}"}, {"role" : "Code", "goodbye": f"{goodbye}"}])
         # TODO Call upload to s3 function
         return jsonify({
             "message": goodbye,

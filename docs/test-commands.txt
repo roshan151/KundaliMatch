@@ -1,3 +1,41 @@
+Backend version 2:
+curl -X POST http://localhost:8080/account:login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "srk.kingkhan@example.com", "password": "srkMagic123"}'
+
+curl -X GET http://localhost:8080/get:user/84fb3928-e856-4233-b095-ddbd1ff73c4e
+
+curl -X GET http://localhost:8080/get:awaiting/84fb3928-e856-4233-b095-ddbd1ff73c4e
+
+curl -X GET http://localhost:8080/get:recommendations/84fb3928-e856-4233-b095-ddbd1ff73c4e
+
+curl -X GET http://localhost:8080/get:matches/84fb3928-e856-4233-b095-ddbd1ff73c4e
+
+curl -X POST http://localhost:8080/chat:continue \
+  -H "Content-Type: application/json" \
+  -d '{"uid": "73a4e3fe-3025-4799-8ede-a1b753f7caae",
+      "user_input": "for sure fitness",
+      "history": [
+        {
+          "content": "Start a conversation with the user arjun rampal who enjoys hobbies: fitness,reading,traveling,photography,music,biking.\nAsk friendly questions about their hobbies and follow up based on what `they say.\n\nIf no history is provided then initiate a question based on the hobbies otherwise continue the existing conversation.\nTo initiate: If user has no hobbies then ask user something like \"Hey arjun rampal: I was wondering what do you do in your free time? This helps me find better matches for you\"\nOr if the user has hobbies then ask for more details about their hobbies.\n\nKeep the conversation short and dont ask more than two to three questions.\nUsers dont want to chat a lot, continous questions will pester the user so look for ways to say goodbye and end the conversation soon.\n\nIn one conversation do not switch topics, only talk about one user hobby. \n\nYou will also be provided with previous user chats (if any). Unless you have had discussions on all hobbies already, do not discuss a topic that has been previously discussed.\nIf you have already had discussions on all user hobbies you can prompt the user to further discuss a hobby.\n\nEnd with \"Thank you for chatting, this information helps us improve the recommendation algorithm to find better matches for you.\"\n\nNOTE: Do a turn by turn conversation.\n\n*****PREVIOUS CHATS******\n\n\n\n**********END************",
+          "role": "system"
+        },
+        {
+          "content": "Hey Arjun Rampal! I was wondering, which hobby do you enjoy the most? Fitness, reading, traveling, photography, music, or biking? This helps me find better matches for you.",
+          "role": "assistant"
+        }
+      ],
+      "message": "Hey Arjun Rampal! I was wondering, which hobby do you enjoy the most? Fitness, reading, traveling, photography, music, or biking? This helps me find better matches for you.",
+      "role": "assistant"
+    }'
+
+curl -X POST http://localhost:8080/account:action \
+  -H "Content-Type: application/json" \
+  -d '{"uid" : "84fb3928-e856-4233-b095-ddbd1ff73c4e", "action" : "align", "recommendation_uid" : "7eb3892a-de57-4841-84eb-d1a61fb2e5ba"}'
+
+
+#######################################################################################################################################################################################
+s
 curl -X POST http://localhost:8080/verify:email -F 'metadata={"email": "example@example.com"}'
 
 curl -X POST http://18.218.180.137:8080/verify:email -F 'metadata={"email": "example@example.com"}'
@@ -60,7 +98,7 @@ curl -X POST https://lovebhagya.com/account:login -F 'metadata={"email": "sobhit
 curl -X POST http://localhost:8080/account:update -F 'metadata={"uid" :"ac02ee31-0f65-48e8-9f94-22f574d85700", "password" : "sobhitaD92!"}'
 
 curl -X POST http://localhost:8080/account:login -F 'metadata={"email": "sobhita.d@example.com", "password" : "sobhitaD92!"}'
-curl -X POST http://localhost:8080/account:login -F 'metadata={"email": "priyanka.chopra@example.com", "password" : "pcChopra!82"}'
+curl -X POST http://localhost:8060/account:login -F 'metadata={"email": "priyanka.chopra@example.com", "password" : "pcChopra!82"}'
 
 curl -X GET https://lovebhagya.com/chat:initiate/73a4e3fe-3025-4799-8ede-a1b753f7caae
 curl -X POST http://localhost:8080/account:action -F 'metadata={"uid" : "63047d6c-98a9-4690-a07f-5b2b5f360bbb", "action" : "align", "recommendation_uid" : "6ad3d5aa-ad06-4c46-869f-f36bbbd99922"}'

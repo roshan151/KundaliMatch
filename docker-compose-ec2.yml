@@ -1,8 +1,14 @@
 services:
+  frontend-service:
+    image: docker.io/roshancodeitup/aligned-frontend-amd64:latest
+    ports:
+      - 8080:8080
+    depends_on:
+      - backend-service
   backend-service:
     image: docker.io/roshancodeitup/kundalimatch-backend-service-amd64:latest
     ports:
-      - "8080:8080"
+      - "8060:8060"
     depends_on:
       - kundali-service
 
