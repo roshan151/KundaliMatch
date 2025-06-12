@@ -1,0 +1,63 @@
+,UID1,UID2,SCORE,CREATED,UPDATED,ALIGN1,ALIGN2,SKIP1,SKIP2,BLOCK1,BLOCK2,NAME1,NAME2
+0,67e78259-685f-42a8-98ad-e41bdb60a9f4,aa08972c-4b6a-421d-b0d5-86a2638020c6,15.3,2025-06-08 00:59:43,2025-06-10 04:29:41,False,True,False,False,False,False,alia bhatt,shah rukh khan
+1,63047d6c-98a9-4690-a07f-5b2b5f360bbb,aa08972c-4b6a-421d-b0d5-86a2638020c6,13.7,2025-06-08 00:59:52,2025-06-11 21:31:07,True,True,False,False,False,False,priyanka chopra,shah rukh khan
+2,f0dc5010-8812-46df-8299-465c1bd4fb6b,aa08972c-4b6a-421d-b0d5-86a2638020c6,15.3,2025-06-08 01:00:05,2025-06-11 21:40:21,True,True,False,False,False,False,sobhita dhulipala,shah rukh khan
+3,c1c90e96-d17e-4bb7-8d92-c5f7d26afe4c,aa08972c-4b6a-421d-b0d5-86a2638020c6,11.3,2025-06-08 01:00:14,2025-06-10 04:10:26,False,True,False,False,False,False,gauri khan,shah rukh khan
+4,ef2b6523-c8de-44e4-b439-cce9463caf45,c1c90e96-d17e-4bb7-8d92-c5f7d26afe4c,18.5,2025-06-08 01:02:05,2025-06-08 01:02:05,False,False,False,False,False,False,shreyas talpade,gauri khan
+5,ef2b6523-c8de-44e4-b439-cce9463caf45,ac02ee31-0f65-48e8-9f94-22f574d85700,14.5,2025-06-08 01:02:05,2025-06-08 01:02:05,False,False,False,False,False,False,shreyas talpade,anushka sharma
+6,ef2b6523-c8de-44e4-b439-cce9463caf45,8331253c-7e0a-4082-85f5-561dd0c2a758,12.9,2025-06-08 01:02:05,2025-06-08 01:02:05,False,False,False,False,False,False,shreyas talpade,divya dutta
+7,ef2b6523-c8de-44e4-b439-cce9463caf45,f0dc5010-8812-46df-8299-465c1bd4fb6b,7.3,2025-06-08 01:02:05,2025-06-08 01:02:05,False,False,False,False,False,False,shreyas talpade,sobhita dhulipala
+8,7dd38dbc-fda3-4550-9d46-792717a5d226,67e78259-685f-42a8-98ad-e41bdb60a9f4,18.5,2025-06-08 01:02:20,2025-06-10 04:42:20,False,True,False,False,False,False,sidharth malhotra,alia bhatt
+9,7dd38dbc-fda3-4550-9d46-792717a5d226,ac02ee31-0f65-48e8-9f94-22f574d85700,18.5,2025-06-08 01:02:20,2025-06-08 01:02:20,False,False,False,False,False,False,sidharth malhotra,anushka sharma
+10,7dd38dbc-fda3-4550-9d46-792717a5d226,c1c90e96-d17e-4bb7-8d92-c5f7d26afe4c,14.5,2025-06-08 01:02:20,2025-06-08 01:02:20,False,False,False,False,False,False,sidharth malhotra,gauri khan
+11,7dd38dbc-fda3-4550-9d46-792717a5d226,8331253c-7e0a-4082-85f5-561dd0c2a758,12.1,2025-06-08 01:02:20,2025-06-08 01:02:20,False,False,False,False,False,False,sidharth malhotra,divya dutta
+12,7dd38dbc-fda3-4550-9d46-792717a5d226,f0dc5010-8812-46df-8299-465c1bd4fb6b,9.7,2025-06-08 01:02:20,2025-06-08 01:02:20,False,False,False,False,False,False,sidharth malhotra,sobhita dhulipala
+13,6ad3d5aa-ad06-4c46-869f-f36bbbd99922,f0dc5010-8812-46df-8299-465c1bd4fb6b,17.0,2025-06-08 01:02:32,2025-06-08 01:02:32,False,False,False,False,False,False,hrithik roshan,sobhita dhulipala
+14,6ad3d5aa-ad06-4c46-869f-f36bbbd99922,67e78259-685f-42a8-98ad-e41bdb60a9f4,14.6,2025-06-08 01:02:32,2025-06-10 07:13:02,False,True,False,False,False,False,hrithik roshan,alia bhatt
+15,6ad3d5aa-ad06-4c46-869f-f36bbbd99922,c1c90e96-d17e-4bb7-8d92-c5f7d26afe4c,14.5,2025-06-08 01:02:32,2025-06-08 01:02:32,False,False,False,False,False,False,hrithik roshan,gauri khan
+16,6ad3d5aa-ad06-4c46-869f-f36bbbd99922,8331253c-7e0a-4082-85f5-561dd0c2a758,12.9,2025-06-08 01:02:32,2025-06-08 01:02:32,False,False,False,False,False,False,hrithik roshan,divya dutta
+17,6ad3d5aa-ad06-4c46-869f-f36bbbd99922,ac02ee31-0f65-48e8-9f94-22f574d85700,12.9,2025-06-08 01:02:32,2025-06-08 01:02:32,False,False,False,False,False,False,hrithik roshan,anushka sharma
+18,35889947-9d5a-4a03-ade9-5bb5540c8acb,ac02ee31-0f65-48e8-9f94-22f574d85700,15.4,2025-06-08 02:30:42,2025-06-10 16:03:09,True,False,False,False,False,False,roshan tiwari,anushka sharma
+19,35889947-9d5a-4a03-ade9-5bb5540c8acb,8331253c-7e0a-4082-85f5-561dd0c2a758,9.7,2025-06-08 02:30:42,2025-06-08 02:30:42,False,False,False,False,False,False,roshan tiwari,divya dutta
+20,35889947-9d5a-4a03-ade9-5bb5540c8acb,c1c90e96-d17e-4bb7-8d92-c5f7d26afe4c,8.9,2025-06-08 02:30:42,2025-06-08 02:30:42,False,False,False,False,False,False,roshan tiwari,gauri khan
+21,35889947-9d5a-4a03-ade9-5bb5540c8acb,67e78259-685f-42a8-98ad-e41bdb60a9f4,4.9,2025-06-08 02:30:42,2025-06-10 04:44:12,False,True,False,False,False,False,roshan tiwari,alia bhatt
+22,cfed7071-dbe0-41e4-89b6-0cfae27b5163,67e78259-685f-42a8-98ad-e41bdb60a9f4,18.5,2025-06-08 02:45:50,2025-06-08 02:45:50,False,False,False,False,False,False,,alia bhatt
+23,cfed7071-dbe0-41e4-89b6-0cfae27b5163,c1c90e96-d17e-4bb7-8d92-c5f7d26afe4c,16.1,2025-06-08 02:45:50,2025-06-08 02:45:50,False,False,False,False,False,False,,gauri khan
+24,cfed7071-dbe0-41e4-89b6-0cfae27b5163,ac02ee31-0f65-48e8-9f94-22f574d85700,14.5,2025-06-08 02:45:50,2025-06-08 02:45:50,False,False,False,False,False,False,,anushka sharma
+25,cfed7071-dbe0-41e4-89b6-0cfae27b5163,63047d6c-98a9-4690-a07f-5b2b5f360bbb,14.5,2025-06-08 02:45:50,2025-06-08 02:45:50,False,False,False,False,False,False,,priyanka chopra
+26,cfed7071-dbe0-41e4-89b6-0cfae27b5163,f0dc5010-8812-46df-8299-465c1bd4fb6b,12.9,2025-06-08 02:45:50,2025-06-08 02:45:50,False,False,False,False,False,False,,sobhita dhulipala
+27,cfed7071-dbe0-41e4-89b6-0cfae27b5163,8331253c-7e0a-4082-85f5-561dd0c2a758,10.4,2025-06-08 02:45:50,2025-06-08 02:45:50,False,False,False,False,False,False,,divya dutta
+28,9aae3cb1-f6dc-4201-b98d-eb25ca67e046,8331253c-7e0a-4082-85f5-561dd0c2a758,5.8,2025-06-08 04:47:47,2025-06-11 20:20:58,True,False,False,False,False,False,ranbir kapoor,divya dutta
+29,9aae3cb1-f6dc-4201-b98d-eb25ca67e046,8331253c-7e0a-4082-85f5-561dd0c2a758,5.0,2025-06-08 04:51:21,2025-06-11 20:20:58,True,False,False,False,False,False,ranbir kapoor,divya dutta
+30,9aae3cb1-f6dc-4201-b98d-eb25ca67e046,ac02ee31-0f65-48e8-9f94-22f574d85700,4.0,2025-06-08 04:47:47,2025-06-08 04:47:47,False,False,False,False,False,False,ranbir kapoor,anushka sharma
+31,9aae3cb1-f6dc-4201-b98d-eb25ca67e046,ac02ee31-0f65-48e8-9f94-22f574d85700,4.9,2025-06-08 04:51:21,2025-06-08 04:51:21,False,False,False,False,False,False,ranbir kapoor,anushka sharma
+32,4988ebe1-b7b9-4802-bb5b-e54c3263cf56,f0dc5010-8812-46df-8299-465c1bd4fb6b,18.5,2025-06-08 04:52:48,2025-06-08 04:52:48,False,False,False,False,False,False,pk,sobhita dhulipala
+33,4988ebe1-b7b9-4802-bb5b-e54c3263cf56,67e78259-685f-42a8-98ad-e41bdb60a9f4,18.5,2025-06-08 04:52:48,2025-06-11 19:06:16,False,True,False,False,False,False,pk,alia bhatt
+34,4988ebe1-b7b9-4802-bb5b-e54c3263cf56,8331253c-7e0a-4082-85f5-561dd0c2a758,17.0,2025-06-08 04:52:48,2025-06-08 04:52:48,False,False,False,False,False,False,pk,divya dutta
+35,4988ebe1-b7b9-4802-bb5b-e54c3263cf56,63047d6c-98a9-4690-a07f-5b2b5f360bbb,16.8,2025-06-08 04:52:48,2025-06-11 21:37:57,False,True,False,False,False,False,pk,priyanka chopra
+36,4988ebe1-b7b9-4802-bb5b-e54c3263cf56,ac02ee31-0f65-48e8-9f94-22f574d85700,15.3,2025-06-08 04:52:48,2025-06-08 04:52:48,False,False,False,False,False,False,pk,anushka sharma
+37,4988ebe1-b7b9-4802-bb5b-e54c3263cf56,c1c90e96-d17e-4bb7-8d92-c5f7d26afe4c,14.5,2025-06-08 04:52:48,2025-06-08 04:52:48,False,False,False,False,False,False,pk,gauri khan
+38,9cb1d479-b1b6-4adc-9e94-d244af2fcee0,63047d6c-98a9-4690-a07f-5b2b5f360bbb,16.972698168,2025-06-08 05:21:41,2025-06-08 05:21:41,False,False,False,False,False,False,parshwa,priyanka chopra
+39,9cb1d479-b1b6-4adc-9e94-d244af2fcee0,f0dc5010-8812-46df-8299-465c1bd4fb6b,16.922720955,2025-06-08 05:21:41,2025-06-08 05:21:41,False,False,False,False,False,False,parshwa,sobhita dhulipala
+40,9cb1d479-b1b6-4adc-9e94-d244af2fcee0,c1c90e96-d17e-4bb7-8d92-c5f7d26afe4c,13.692605597,2025-06-08 05:21:41,2025-06-08 05:21:41,False,False,False,False,False,False,parshwa,gauri khan
+41,9cb1d479-b1b6-4adc-9e94-d244af2fcee0,8331253c-7e0a-4082-85f5-561dd0c2a758,12.908028757,2025-06-08 05:21:41,2025-06-08 05:21:41,False,False,False,False,False,False,parshwa,divya dutta
+42,9cb1d479-b1b6-4adc-9e94-d244af2fcee0,ac02ee31-0f65-48e8-9f94-22f574d85700,10.568206064,2025-06-08 05:21:41,2025-06-08 05:21:41,False,False,False,False,False,False,parshwa,anushka sharma
+43,17cb74c7-4b34-48f3-9da8-bb4a6d24d769,f0dc5010-8812-46df-8299-465c1bd4fb6b,18.514424272,2025-06-08 17:37:07,2025-06-11 21:40:39,False,True,False,False,False,False,shahrukh khan,sobhita dhulipala
+44,17cb74c7-4b34-48f3-9da8-bb4a6d24d769,63047d6c-98a9-4690-a07f-5b2b5f360bbb,16.93372391,2025-06-08 17:37:07,2025-06-08 17:37:07,False,False,False,False,False,False,shahrukh khan,priyanka chopra
+45,17cb74c7-4b34-48f3-9da8-bb4a6d24d769,c1c90e96-d17e-4bb7-8d92-c5f7d26afe4c,13.687507867,2025-06-08 17:37:07,2025-06-08 17:37:07,False,False,False,False,False,False,shahrukh khan,gauri khan
+46,17cb74c7-4b34-48f3-9da8-bb4a6d24d769,67e78259-685f-42a8-98ad-e41bdb60a9f4,11.28338114,2025-06-08 17:37:07,2025-06-11 19:06:06,False,True,False,False,False,False,shahrukh khan,alia bhatt
+47,17cb74c7-4b34-48f3-9da8-bb4a6d24d769,8331253c-7e0a-4082-85f5-561dd0c2a758,11.28133979,2025-06-08 17:37:07,2025-06-08 17:37:07,False,False,False,False,False,False,shahrukh khan,divya dutta
+48,17cb74c7-4b34-48f3-9da8-bb4a6d24d769,ac02ee31-0f65-48e8-9f94-22f574d85700,5.76292487,2025-06-08 17:37:07,2025-06-08 17:37:07,False,False,False,False,False,False,shahrukh khan,anushka sharma
+49,f58ea8c0-e1c4-48f7-b226-a721d755891e,63047d6c-98a9-4690-a07f-5b2b5f360bbb,16.912957508,2025-06-08 20:22:24,2025-06-08 20:22:24,False,False,False,False,False,False,parshwa shah,priyanka chopra
+50,f58ea8c0-e1c4-48f7-b226-a721d755891e,ac02ee31-0f65-48e8-9f94-22f574d85700,16.866078949,2025-06-08 20:22:24,2025-06-08 20:22:24,False,False,False,False,False,False,parshwa shah,anushka sharma
+51,f58ea8c0-e1c4-48f7-b226-a721d755891e,c1c90e96-d17e-4bb7-8d92-c5f7d26afe4c,14.552003987,2025-06-08 20:22:24,2025-06-08 20:22:24,False,False,False,False,False,False,parshwa shah,gauri khan
+52,f58ea8c0-e1c4-48f7-b226-a721d755891e,67e78259-685f-42a8-98ad-e41bdb60a9f4,12.166568813,2025-06-08 20:22:24,2025-06-08 20:22:24,False,False,False,False,False,False,parshwa shah,alia bhatt
+53,f58ea8c0-e1c4-48f7-b226-a721d755891e,8331253c-7e0a-4082-85f5-561dd0c2a758,11.290799718,2025-06-08 20:22:24,2025-06-08 20:22:24,False,False,False,False,False,False,parshwa shah,divya dutta
+54,73a4e3fe-3025-4799-8ede-a1b753f7caae,8331253c-7e0a-4082-85f5-561dd0c2a758,4.9,2025-06-10 03:21:35,2025-06-10 03:21:35,False,False,False,False,False,False,arjun rampal,divya dutta
+55,73a4e3fe-3025-4799-8ede-a1b753f7caae,c1c90e96-d17e-4bb7-8d92-c5f7d26afe4c,4.7,2025-06-10 03:21:35,2025-06-11 22:57:36,True,False,False,False,False,False,arjun rampal,gauri khan
+56,f79a96c3-6caf-43de-9773-0b7d3d8dbc5f,63047d6c-98a9-4690-a07f-5b2b5f360bbb,6.2,2025-06-11 02:10:55,2025-06-11 21:38:24,False,True,False,False,False,False,raj kumar,priyanka chopra
+57,f79a96c3-6caf-43de-9773-0b7d3d8dbc5f,8331253c-7e0a-4082-85f5-561dd0c2a758,5.9,2025-06-11 02:10:55,2025-06-11 02:10:55,False,False,False,False,False,False,raj kumar,divya dutta
+58,f79a96c3-6caf-43de-9773-0b7d3d8dbc5f,67e78259-685f-42a8-98ad-e41bdb60a9f4,5.5,2025-06-11 02:10:55,2025-06-11 02:10:55,False,False,False,False,False,False,raj kumar,alia bhatt
+59,f79a96c3-6caf-43de-9773-0b7d3d8dbc5f,c1c90e96-d17e-4bb7-8d92-c5f7d26afe4c,5.4,2025-06-11 02:10:55,2025-06-11 02:10:55,False,False,False,False,False,False,raj kumar,gauri khan
+60,f79a96c3-6caf-43de-9773-0b7d3d8dbc5f,ac02ee31-0f65-48e8-9f94-22f574d85700,5.0,2025-06-11 02:10:55,2025-06-11 02:10:55,False,False,False,False,False,False,raj kumar,anushka sharma
+61,f79a96c3-6caf-43de-9773-0b7d3d8dbc5f,f0dc5010-8812-46df-8299-465c1bd4fb6b,4.5,2025-06-11 02:10:55,2025-06-11 02:10:55,False,False,False,False,False,False,raj kumar,sobhita dhulipala

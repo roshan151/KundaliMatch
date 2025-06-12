@@ -1,19 +1,19 @@
 [
-    {
-        "name": "Shah Rukh Khan",
-        "phone": "9000000001",
-        "password": "srkMagic123",
-        "profession": "Actor",
-        "birth_city": "New Delhi",
-        "birth_country": "India",
-        "email": "srk.kingkhan@example.com",
-        "city": "Mumbai",
-        "country": "India",
-        "dob": "1965-11-02",
-        "tob": "14:30",
-        "gender": "male",
-        "hobbies": ["cricket", "computer games", "reading", "collecting gadgets", "traveling"]
-      }, 
+  {
+      "name": "Shah Rukh Khan",
+      "phone": "9000000001",
+      "password": "srkMagic123",
+      "profession": "Actor",
+      "birth_city": "New Delhi",
+      "birth_country": "India",
+      "email": "srk.kingkhan@example.com",
+      "city": "Mumbai",
+      "country": "India",
+      "dob": "1965-11-02",
+      "tob": "14:30",
+      "gender": "male",
+      "hobbies": ["cricket", "computer games", "reading", "collecting gadgets", "traveling"]
+  }, 
       
   {
     "name": "Anushka Sharma",

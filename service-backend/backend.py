@@ -429,20 +429,33 @@ def login():
     # Segregate recommendations from notifications
     recommendation_cards = []
     recommended_uids = []
+
+    log.info(f'User uid: {uid}')
     if len(results)>0:
         for result in results:
             # Last element is True or False Letting UI know if threy need to allow chat feature
 
-            usr_idx = 0 if result[0] == uid else 1
-            rec_idx = 1 if usr_idx == 0 else 1
+            if str(result[0]) == str(uid):
+                log.info(f'First uid is user: {result[0]}')
+                usr_idx = 0
+                rec_idx = 1
+            elif str(result[1]) == str(uid):
+                log.info(f'Second uid is user: {result[1]}')
+                usr_idx = 1
+                rec_idx = 0
+            else:
+                log.info(f'No match for usr uid {uid}, {result[0]}, {result[1]}')
+
             recommended_id = result[rec_idx]
             rec_align = result[4+rec_idx] ## This is align bitton of recommended profile
-            usr_align = result[4+usr_idx]   # This is align bitton of user
+            usr_align = result[4+usr_idx]   # This is align bitton ofs user
             rec_skip = result[6+rec_idx] ## This is skip bitton of recommended profile
             usr_skip = result[6+usr_idx] # This is skip bitton of user
+
             score = result[2]
             rec_name = result[10+rec_idx]
-            log.info(f'{rec_align}, {usr_align}, {rec_skip}, {usr_skip}')
+            log.info(result)
+            log.info(f'{recommended_id}, {rec_align}, {usr_align}, {rec_skip}, {usr_skip}')
 
             updated_time = ensure_datetime(result[3])
 
@@ -474,7 +487,7 @@ def login():
 
             log.info({"recommendation_uid" : recommended_id, "score" : score, "chat_enabled" : chat_enabled, "queue" : queue, "user_align" : usr_align})
             
-            if recommended_id not in recommended_uids:
+            if recommended_id not in recommended_uids and recommended_id != uid:
                 recommendation_cards.append({"recommendation_uid" : recommended_id, "score" : score, "chat_enabled" : chat_enabled, "queue" : queue, "user_align" : usr_align})
                 recommended_uids.append(recommended_id)
                 
@@ -754,9 +767,11 @@ def action():
         return jsonify({"error": "Missing 'action' field"}), 400
     valid_cols = ['UID1', 'UID2', 'SCORE', 'UPDATED', 'ALIGN1', 'ALIGN2', 'SKIP1', 'SKIP2', 'BLOCK1', 'BLOCK2', 'NAME1', 'NAME2']
     matching_connect = SnowConnect(config.MATCHING_TABLE_WAREHOUSE, config.MATCHING_TABLE_DATABASE, config.MATCHING_TABLE_SCHEMA)
+    
     sql_fetch = f"SELECT UID1, UID2, SCORE, UPDATED, ALIGN1, ALIGN2, SKIP1, SKIP2, BLOCK1, BLOCK2, NAME1, NAME2 FROM {config.MATCHING_TABLE} WHERE (UID1 = '{uid}' AND UID2 = '{rec_uid}') OR (UID1 = '{rec_uid}' AND UID2= '{uid}')"
     matching_connect.cursor.execute(sql_fetch)
     results = matching_connect.cursor.fetchall()
+    
     if len(results)>1:
         log.warning(f'Mathing table row is not unique {uid}, {rec_uid}')
         result = results[-1]
@@ -765,8 +780,19 @@ def action():
     else:
         return jsonify({"error": f"No row in matching table {uid}, {rec_uid}"}), 400
     
-    primary = 0 if result[0] == uid else 1
-    rec_idx = 1 if primary == 0 else 0
+    if str(result[0]) == str(uid):
+        log.info(f'First uid is user: {result[0]}')
+        primary = 0
+        rec_idx = 1
+
+    elif str(result[1]) == str(uid):
+
+        log.info(f'Second uid is user: {result[1]}')
+        primary = 1
+        rec_idx = 0
+    else:
+        log.info(f'No match for usr uid {uid}, {result[0]}, {result[1]}\n{result}')
+
     recommended_user_name = result[10+rec_idx]
 
     if action == 'skip':
@@ -788,9 +814,10 @@ def action():
         update_sql = f"UPDATE {config.MATCHING_TABLE} SET {align_col} = {True}, UPDATED = '{current_time}' WHERE UID1 = '{result[0]}' AND UID2 = '{result[1]}'"
         matching_connect.cursor.execute(update_sql)
 
-        if result[5] == True and result[6] == True:
+        if result[4+rec_idx] == True:
             queue = 'MATCHED'
             message = f'You have been matched with the {recommended_user_name}.'
+            
         else:
             queue = 'AWAITING'
             message = f'Align request has been sent to {recommended_user_name}'

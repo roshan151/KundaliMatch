@@ -12,7 +12,7 @@ SSH := ssh -i $(SSH_KEY) $(EC2_USER)@$(EC2_HOST)
 
 .PHONY: setup-docker get-image run-container verify-container publish clean
 
-VERSION = v0.2.0
+VERSION = v0.2.1
 BACKEND_IMAGE = kundalimatch-backend-service-amd64
 KUNDALI_IMAGE = kundalimatch-kundali-service-amd64
 
