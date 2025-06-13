@@ -12,25 +12,22 @@ SSH := ssh -i $(SSH_KEY) $(EC2_USER)@$(EC2_HOST)
 
 .PHONY: setup-docker get-image run-container verify-container publish clean
 
-VERSION = v0.2.2
+VERSION = v0.2.3
 BACKEND_IMAGE = kundalimatch-backend-service-amd64
 KUNDALI_IMAGE = kundalimatch-kundali-service-amd64
 
 publish:
-
-
+	docker tag docker.io/library/$(BACKEND_IMAGE):latest docker.io/roshancodeitup/$(BACKEND_IMAGE):latest
+	docker tag docker.io/roshancodeitup/$(BACKEND_IMAGE):latest docker.io/roshancodeitup/$(BACKEND_IMAGE):$(VERSION)
 	docker tag docker.io/library/$(KUNDALI_IMAGE):latest docker.io/roshancodeitup/$(KUNDALI_IMAGE):latest
 	docker tag docker.io/roshancodeitup/$(KUNDALI_IMAGE):latest docker.io/roshancodeitup/$(KUNDALI_IMAGE):$(VERSION)
-
-
-
+	docker push docker.io/roshancodeitup/$(BACKEND_IMAGE):latest
+	docker push docker.io/roshancodeitup/$(BACKEND_IMAGE):$(VERSION)
 	docker push docker.io/roshancodeitup/$(KUNDALI_IMAGE):latest
 	docker push docker.io/roshancodeitup/$(KUNDALI_IMAGE):$(VERSION)
 
 # 1. Set up Docker on EC2
 setup-docker:
-	# docker tag docker.io/library/$(BACKEND_IMAGE):latest docker.io/roshancodeitup/$(BACKEND_IMAGE):latest
-	# docker tag docker.io/roshancodeitup/$(BACKEND_IMAGE):latest docker.io/roshancodeitup/$(BACKEND_IMAGE):$(VERSION)
 
 	# 	docker push docker.io/roshancodeitup/$(BACKEND_IMAGE):latest
 	# docker push docker.io/roshancodeitup/$(BACKEND_IMAGE):$(VERSION)

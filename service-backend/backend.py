@@ -168,6 +168,15 @@ def compute_score(user_1 : list, user_2 : list):
 
 app = Flask(__name__)
 
+@app.before_request
+def handle_preflight():
+    if request.method == 'OPTIONS':
+        response = make_response()
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, PUT, DELETE"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+        return response, 200
+
 @app.route('/')
 def health_check():
     return 'OK', 200
@@ -590,18 +599,20 @@ def find_profiles():
 
     return jsonify(response_output)
 
-async def update_notifications_or_chats(uid, new_notifications_or_chats, column, key = None):
+async def update_notifications_or_chats(uid, new_notifications_or_chats, column):
+
+    column = column.lower()
 
     if column == 'notifications':
         col = 'NOTIFICATIONS'
-    elif column == 'destiny_chats':
-        col = 'DESTINY_CHATS'
-        if key is None:
-            log.warning("Provide destiny chats key - INITIATE or PREFERENCE")
-
+    elif column == 'initiate_chats':
+        col = 'INITIATE_CHATS'
+    elif column == 'preference_chats':
+        col = 'PREFERENCE_CHATS'
     else:
-        log.warning(f"Unsupported datatype/snowflake column: {column}. Supported datatypes are ['notifications', 'destiny_chats']")
-
+        log.warning(f"Unsupported datatype/snowflake column: {column}. Supported datatypes are ['notifications', 'initiate_chats', 'preference_chats']")
+        return None
+    
     profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
     select_sql = f"SELECT UID, CREATED, PASSWORD, LOGIN, {col} FROM {config.PROFILE_TABLE} WHERE UID = '{uid}'"
     profile_connect.cursor.execute(select_sql)
@@ -621,7 +632,7 @@ async def update_notifications_or_chats(uid, new_notifications_or_chats, column,
     if process:
         notifications_or_chats_url = result[-1]
 
-        if notifications_or_chats_url is None:
+        if notifications_or_chats_url is None or notifications_or_chats_url in ['', 'None']:
 
             notifications_or_chats = []
             new_s3_obj = True
@@ -637,27 +648,21 @@ async def update_notifications_or_chats(uid, new_notifications_or_chats, column,
 
             # Parse YAML
             notifications_or_chats = yaml.safe_load(yaml_content)
-
-            if column == 'destiny_chats':
-                if key in notifications_or_chats:
-                    value = notifications_or_chats[key]
-                    value.extend(new_notifications_or_chats)
-                    notifications_or_chats[key] = value
-                else:
-                    notifications_or_chats[key] = new_notifications_or_chats         
-            else:
-                notifications_or_chats.extend(new_notifications_or_chats)
-
             new_s3_obj = False
 
-        
+        notifications_or_chats.extend(new_notifications_or_chats)
 
         if new_s3_obj:
             filename = f'{column}/{uid}_{column}.yaml'
-            with open(f"{uid}_notifications.yaml", 'w') as file:
+
+            directory = os.getcwd()
+            filepath = os.path.join(directory, f"{uid}_notifications.yaml")
+            with open(filepath, 'w') as file:
                 yaml.dump(notifications_or_chats, file)
 
-            path = upload_file_to_s3(f"{uid}_{column}.yaml", filename)
+            log.info(f'Saved to {filepath} : {notifications_or_chats}')
+
+            path = upload_file_to_s3(filepath, filename)
 
             update_sql = f"UPDATE {config.PROFILE_TABLE} SET {col} = '{str(path)}' WHERE UID = '{uid}'"
             
@@ -960,6 +965,57 @@ def load_prompts(filepath: str) -> dict:
     with open(filepath, "r") as file:
         return yaml.safe_load(file)
     
+def load_previous_chats(chats_url):
+
+    if chats_url is None or (type(chats_url) == str and chats_url == ''):
+        chats = []
+        log.info(f'No chats url is None')
+
+    elif type(chats_url) == str:
+        
+        chats_url_parsed = urlparse(chats_url)
+        chats_url = chats_url_parsed.path.lstrip('/')
+
+        try:
+            # Download image from S3 as bytes
+            s3_object = s3.get_object(Bucket=BUCKET_NAME, Key=chats_url)
+            yaml_content = s3_object['Body'].read()
+
+            # Parse YAML
+            chats = yaml.safe_load(yaml_content)
+            if chats is None:
+                chats = []
+
+        except Exception as e:
+            log.warning(f'Unable to load chats url {chats_url}')
+            chats = []
+    else:
+        log.warning(f'Chats url is not string: {chats_url}')
+        chats = []
+        
+
+    # TODO: Filter last {n} chats and summarize all from 1 to n-1
+    previous_chats =''
+    if len(chats) >= 0:
+        try:
+            chat_num = 1
+            for idx, item in enumerate(chats):
+                if "history" in item:
+                    chat_num += 1
+                    previous_chats += f'Chat Number: {chat_num}, Date and Time: {item["updated"]}\n'
+                    for convo in item["history"]:
+                        if "role" in convo:
+                            if convo["role"] in ["assistant", "user"]:
+                                if "content" in convo:
+                                    previous_chats += f'role : {convo["role"]}, content: {convo["content"]}'
+                                if "message" in convo:
+                                    previous_chats += f'role : {convo["role"]}, content: {convo["message"]}'
+        except Exception as e:
+            log.warning(f'Unable to get previous_chats from {chats}, {e}')
+
+
+    return previous_chats
+    
 
 @app.route("/chat:initiate/<string:uid>", methods = ["GET"])
 def chat_initiate(uid):
@@ -969,7 +1025,7 @@ def chat_initiate(uid):
 
     profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
 
-    columns = ['UID', 'NAME', 'DOB', 'CITY', 'COUNTRY', 'HOBBIES', 'PROFESSION', 'GENDER', 'DESTINY_CHATS']
+    columns = ['UID', 'NAME', 'DOB', 'CITY', 'COUNTRY', 'HOBBIES', 'PROFESSION', 'GENDER', 'INITIATE_CHATS']
     columns_string = ', '.join(columns)
     select_sql = f"SELECT {columns_string} FROM {config.PROFILE_TABLE} WHERE UID = '{uid}'"
     profile_connect.cursor.execute(select_sql)
@@ -992,44 +1048,9 @@ def chat_initiate(uid):
 
     chats_url = result[-1]
 
-    if chats_url is None or (type(chats_url) == str and chats_url == ''):
-        chats = []
-        log.info(f'No chats url is None')
-
-    elif type(chats_url) == str:
-        
-        chats_url_parsed = urlparse(chats_url)
-        chats_url = chats_url_parsed.path.lstrip('/')
-
-        try:
-            # Download image from S3 as bytes
-            s3_object = s3.get_object(Bucket=BUCKET_NAME, Key=chats_url)
-            yaml_content = s3_object['Body'].read()
-
-            # Parse YAML
-            chats = yaml.safe_load(yaml_content)
-
-        except Exception as e:
-            log.warning(f'Unable to load chats url {chats_url}')
-            chats = []
-    else:
-        log.warning(f'Chats url is not string: {chats_url}')
-        chats = []
-        
-
-    # TODO: Filter last {n} chats and summarize all from 1 to n-1
-        previous_chats =''
-    if 'INITIATE' in chats.keys():
-        for idx, item in enumerate(chats["INITIATE"]):
-            previous_chats += f'Chat Number: {idx}, Date and Time: {item["updated"]}\n'
-            for convo in item["history"]:
-                if convo["role"] in ["assistant", "user"]:
-                    if "content" in convo:
-                        previous_chats += f'role : {convo["role"]}, content: {convo["content"]}'
-                    if "message" in convo:
-                        previous_chats += f'role : {convo["role"]}, content: {convo["message"]}'
-
+    previous_chats = load_previous_chats(chats_url)
     prompts = load_prompts(config.PROMPTS_YAML)
+
     system_prompt = prompts['initiate_system_prompt'].format(name = name, hobbies = hobbies, previous_chats = previous_chats)
 
     # Start with system message if no history
@@ -1047,91 +1068,6 @@ def chat_initiate(uid):
 
     return jsonify({"role": "assistant", "message": assistant_msg, "history": history, "continue" : True })
 
-@app.route("/chat:preference/<string:uid>", methods = ["GET"])
-def chat_preference(uid):
-
-    if uid is None:
-        return jsonify({"error": "Missing 'uid' in url"}), 400
-
-    profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
-
-    columns = ['UID', 'NAME', 'DOB', 'CITY', 'COUNTRY', 'HOBBIES', 'PROFESSION', 'GENDER', 'DESTINY_CHATS']
-    columns_string = ', '.join(columns)
-    select_sql = f"SELECT {columns_string} FROM {config.PROFILE_TABLE} WHERE UID = '{uid}'"
-    profile_connect.cursor.execute(select_sql)
-
-    results = profile_connect.cursor.fetchall()
-
-    if len(results) > 1:
-        log.info(f'Result is not unique')
-        result = results[-1]
-    elif len(results) == 1:
-        result = results[0]
-    else:
-        log.info(f'No result for uid: {uid}')
-        return jsonify({'error': f'no results found for uid: {uid}'}), 400
-    
-    name = result[1]
-    hobbies = result[5]
-
-    profile_connect.close()
-
-    chats_url = result[-1]
-
-    if chats_url is None or (type(chats_url) == str and chats_url == ''):
-        chats = []
-        log.info(f'No chats url is None')
-
-    elif type(chats_url) == str:
-        
-        chats_url_parsed = urlparse(chats_url)
-        chats_url = chats_url_parsed.path.lstrip('/')
-
-        try:
-            # Download image from S3 as bytes
-            s3_object = s3.get_object(Bucket=BUCKET_NAME, Key=chats_url)
-            yaml_content = s3_object['Body'].read()
-
-            # Parse YAML
-            chats = yaml.safe_load(yaml_content)
-
-        except Exception as e:
-            log.warning(f'Unable to load chats url {chats_url}')
-            chats = []
-    else:
-        log.warning(f'Chats url is not string: {chats_url}')
-        chats = []
-        
-
-    # TODO: Filter last {n} chats and summarize all from 1 to n-1
-    previous_chats =''
-    if 'PREFERENCE' in chats.keys():
-        for idx, item in enumerate(chats["PREFERENCE"]):
-            previous_chats += f'Chat Number: {idx}, Date and Time: {item["updated"]}\n'
-            for convo in item["history"]:
-                if convo["role"] in ["assistant", "user"]:
-                    if "content" in convo:
-                        previous_chats += f'role : {convo["role"]}, content: {convo["content"]}'
-                    if "message" in convo:
-                        previous_chats += f'role : {convo["role"]}, content: {convo["message"]}'
-
-    prompts = load_prompts(config.PROMPTS_YAML)
-    system_prompt = prompts['preference_system_prompt'].format(name = name, hobbies = hobbies, previous_chats = previous_chats)
-
-    # Start with system message if no history
-    messages = []
-    messages.append(SystemMessage(content=system_prompt))
-    # Get response from LLM
-    try:
-        response = llm(messages)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-    
-    assistant_msg = response.content
-
-    history = [{"role": "system", "content" : system_prompt}, {"role" : "assistant", "content" : assistant_msg}]
-
-    return jsonify({"role": "assistant", "message": assistant_msg, "history": history, "continue" : True })
 
 def continue_chat(user_input, history):
     
@@ -1149,6 +1085,7 @@ def continue_chat(user_input, history):
                 messages.append(HumanMessage(content=msg['message']))
             else:
                 log.warning(f'Niether content nor message in message, {msg}')
+
         elif msg['role'] == 'assistant':
             if 'content' in msg:
                 messages.append(AIMessage(content=msg['content']))
@@ -1156,6 +1093,7 @@ def continue_chat(user_input, history):
                 messages.append(AIMessage(content=msg['message']))
             else:
                 log.warning(f'Niether content nor message in message, {msg}')
+
         elif msg['role'] == 'system':
             if 'content' in msg:
                 messages.append(SystemMessage(content=msg['content']))
@@ -1194,7 +1132,7 @@ def continue_chat(user_input, history):
     return assistant_msg, updated_history, cont
 
 @app.route("/chat/initiate:continue", methods=["POST"])
-def chat_initiate():
+def continue_initiate():
 
     try:
         json_data = request.get_json()
@@ -1206,11 +1144,11 @@ def chat_initiate():
     
     current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
 
-    if user_input.lower() in ['bye', 'exit', 'quit', 'goodbye']:
+    if user_input.lower() in ['bye', 'exit', 'quit', 'goodbye', 'end']:
         endphrase_list = ['Thank you for chatting with me! This information helps us find better matches for you.', 'See you later! we will further discuss your hoobie some other time.']
         goodbye = random.choice(endphrase_list)
 
-        threading.Thread(target=run_async_task, args=(update_notifications_or_chats(uid, [{'history' : history, 'updated' : current_time}], 'NOTIFICATIONS'),)).start()
+        threading.Thread(target=run_async_task, args=(update_notifications_or_chats(uid, [{'history' : history, 'updated' : current_time}], 'INITIATE_CHATS'),)).start()
         history.extend([{"role" : "user", "content": f"{user_input}"}, {"role" : "Code", "goodbye": f"{goodbye}"}])
         # TODO Call upload to s3 function
         return jsonify({
@@ -1222,8 +1160,8 @@ def chat_initiate():
     assistant_msg, updated_history, cont = continue_chat(user_input, history)
 
     
-    if 'thank you for chatting with me' in assistant_msg.lower():
-        threading.Thread(target=run_async_task, args=(update_notifications_or_chats(uid, [{'history' : updated_history, 'updated' : current_time}], 'destiny_chats', 'INITIATE'),)).start()
+    if 'thank you for chatting with me' in assistant_msg.lower() or cont == False:
+        threading.Thread(target=run_async_task, args=(update_notifications_or_chats(uid, [{'history' : updated_history, 'updated' : current_time}], 'INITIATE_CHATS'),)).start()
         cont = False
 
     return jsonify({
@@ -1233,43 +1171,100 @@ def chat_initiate():
     })
 
 @app.route("/chat/preference:continue", methods=["POST"])
-def chat_preference():
+def continue_preference():
 
     try:
         json_data = request.get_json()
         uid = json_data.get('uid')
         user_input = json_data.get('user_input')
-        history = json_data.get('history')
+        history = json_data.get('history', [])
     except:
         return jsonify({'error': 'Invalid JSON or missing uid/user_input/history'}), 400
     
     current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
 
-    if user_input.lower() in ['bye', 'exit', 'quit', 'goodbye']:
-        endphrase_list = ['Thank you for chatting with me! This information helps us find better matches for you.', 'See you later! we will further discuss your hoobie some other time.']
-        goodbye = random.choice(endphrase_list)
+    system = False
+    if len(history)>0:
+        for item in history:
+            if "role" in item and item["role"] == "system":
+                system = True
+                break
 
-        threading.Thread(target=run_async_task, args=(update_notifications_or_chats(uid, [{'history' : history, 'updated' : current_time}], 'NOTIFICATIONS'),)).start()
-        history.extend([{"role" : "user", "content": f"{user_input}"}, {"role" : "Code", "goodbye": f"{goodbye}"}])
-        # TODO Call upload to s3 function
+    if system == True:
+
+        if user_input.lower() in ['bye', 'exit', 'quit', 'goodbye', 'end']:
+
+            endphrase_list = ['Thank you for chatting with me! This information helps us find better matches for you.', 'See you later! we will further discuss your hoobie some other time.']
+            goodbye = random.choice(endphrase_list)
+
+            threading.Thread(target=run_async_task, args=(update_notifications_or_chats(uid, [{'history' : history, 'updated' : current_time}], 'PREFERENCE_CHATS'),)).start()
+            history.extend([{"role" : "user", "content": f"{user_input}"}, {"role" : "Code", "goodbye": f"{goodbye}"}])
+            # TODO Call upload to s3 function
+            return jsonify({
+                "message": goodbye,
+                "history": history,
+                "continue": False
+            })
+            
+        assistant_msg, updated_history, cont = continue_chat(user_input, history)
+
+        if 'thank you for chatting with me' in assistant_msg.lower() or cont == False:
+            threading.Thread(target=run_async_task, args=(update_notifications_or_chats(uid, [{'history' : updated_history, 'updated' : current_time}], 'PREFERENCE_CHATS'),)).start()
+            cont = False
+
         return jsonify({
-            "message": goodbye,
-            "history": history,
-            "continue": False
+            "message": assistant_msg,
+            "history": updated_history,
+            "continue": cont
         })
+
+    else:
+
+        profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
+
+        columns = ['UID', 'NAME', 'DOB', 'CITY', 'COUNTRY', 'HOBBIES', 'PROFESSION', 'GENDER', 'PREFERENCE_CHATS']
+        columns_string = ', '.join(columns)
+        select_sql = f"SELECT {columns_string} FROM {config.PROFILE_TABLE} WHERE UID = '{uid}'"
+        profile_connect.cursor.execute(select_sql)
+
+        results = profile_connect.cursor.fetchall()
+
+        if len(results) > 1:
+            log.info(f'Result is not unique')
+            result = results[-1]
+        elif len(results) == 1:
+            result = results[0]
+        else:
+            log.info(f'No result for uid: {uid}')
+            return jsonify({'error': f'no results found for uid: {uid}'}), 400
         
-    assistant_msg, updated_history, cont = continue_chat(user_input, history)
+        name = result[1]
+        profile_connect.close()
 
-    if 'thank you for chatting with me' in assistant_msg.lower():
-        threading.Thread(target=run_async_task, args=(update_notifications_or_chats(uid, [{'history' : updated_history, 'updated' : current_time}], 'destiny_chats', 'PREFERENCE'),)).start()
-        cont = False
+        chats_url = result[-1]
 
-    return jsonify({
-        "message": assistant_msg,
-        "history": updated_history,
-        "continue": cont
-    })
+        previous_chats = load_previous_chats(chats_url)
+        prompts = load_prompts(config.PROMPTS_YAML)
 
+        system_prompt = prompts['preference_system_prompt'].format(name = name, previous_chats = previous_chats)
+
+        # Start with system message if no history
+        messages = []
+        messages.append(SystemMessage(content=system_prompt))
+
+        messages.append(HumanMessage(content=user_input))
+
+        # Get response from LLM
+        try:
+            response = llm(messages)
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+        
+        assistant_msg = response.content
+
+        history = [{"role": "system", "content" : system_prompt}, {"role" : "user", "content" : user_input}, {"role" : "assistant", "content" : assistant_msg}]
+
+        return jsonify({"role": "assistant", "message": assistant_msg, "history": history, "continue" : True })
 
 @app.after_request
 def add_cors_headers(response):

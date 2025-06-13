@@ -11,7 +11,7 @@ curl -X GET http://localhost:8080/get:recommendations/84fb3928-e856-4233-b095-dd
 
 curl -X GET http://localhost:8080/get:matches/84fb3928-e856-4233-b095-ddbd1ff73c4e
 
-curl -X POST http://localhost:8080/chat:continue \
+curl -X POST http://localhost:8080/chat/initiate:continue \
   -H "Content-Type: application/json" \
   -d '{"uid": "73a4e3fe-3025-4799-8ede-a1b753f7caae",
       "user_input": "for sure fitness",
@@ -24,8 +24,14 @@ curl -X POST http://localhost:8080/chat:continue \
           "content": "Hey Arjun Rampal! I was wondering, which hobby do you enjoy the most? Fitness, reading, traveling, photography, music, or biking? This helps me find better matches for you.",
           "role": "assistant"
         }
-      ],
-      "message": "Hey Arjun Rampal! I was wondering, which hobby do you enjoy the most? Fitness, reading, traveling, photography, music, or biking? This helps me find better matches for you.",
+      ]
+     }'
+
+curl -X POST http://localhost:8080/chat/preference:continue \
+  -H "Content-Type: application/json" \
+  -d '{"uid": "73a4e3fe-3025-4799-8ede-a1b753f7caae",
+      "user_input": ""Yeah sports like tennis or pickleball",",
+      "history": [{"content":"You are an AI assistant on a dating site Aligned, your job is to talk to users on the website.\n\nUser can tell you about their preferences like - i want matches of people in IT profession, or I want people in mid 30s etc,\nUsers can also talk to you about their current matches and what do you have to say about them.\nUsers can also talk to you about their past dates. Users can also talk about their hobbies sometimes.\n\nYou can ask follow up questions about their preferences or other topics to get some clarity.\n\nKeep the conversation short and dont ask more than two or three follow up questions.\nUsers dont want to chat a lot, continous questions will pester the user so look for ways to say goodbye and end the conversation soon.\n\nIn one conversation do not switch topics, strictly talk about what user is interested in. \n\nYou will also be provided with previous user chats (if any).\nIf you have already had discussions on all user hobbies you can prompt the user to further discuss a hobby.\n\nIf previous chat history is present. You can also summarize all previous preferences in talking about user preferences for users to have more clarity.\n\nEnd with \"Thank you for chatting, this information helps us improve the recommendation algorithm to find better matches for you.\"\n\nNOTE: Do a turn by turn conversation.\n\nPrevious chat history with user anmol tiwari .\n\n*****PREVIOUS CHATS******\n\n\n\n**********END************\n\nStarting a conversation with anmol tiwari :","role":"system"},{"content":"Got it! You prefer matches who play sports. Do you have any specific sports in mind, or are you open to all types?","role":"assistant"}],
       "role": "assistant"
     }'
 
@@ -33,9 +39,63 @@ curl -X POST http://localhost:8080/account:action \
   -H "Content-Type: application/json" \
   -d '{"uid" : "84fb3928-e856-4233-b095-ddbd1ff73c4e", "action" : "align", "recommendation_uid" : "7eb3892a-de57-4841-84eb-d1a61fb2e5ba"}'
 
+curl -X GET http://localhost:8080/chat:initiate/84fb3928-e856-4233-b095-ddbd1ff73c4e
+
+curl -X POST http://localhost:8080/chat:preference \
+  -H "Content-Type: application/json" \
+  -d '{"uid" : "84fb3928-e856-4233-b095-ddbd1ff73c4e", "user_input" : "Only recommend my users who play sports"}'
 
 #######################################################################################################################################################################################
-s
+
+Backend version 2:
+curl -X POST https://lovebhagya.com/account:login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "srk.kingkhan@example.com", "password": "srkMagic123"}'
+
+curl -X GET https://lovebhagya.com/get:user/84fb3928-e856-4233-b095-ddbd1ff73c4e
+
+curl -X GET https://lovebhagya.com/get:awaiting/84fb3928-e856-4233-b095-ddbd1ff73c4e
+
+curl -X GET https://lovebhagya.com/get:recommendations/84fb3928-e856-4233-b095-ddbd1ff73c4e
+
+curl -X GET https://lovebhagya.com/get:matches/84fb3928-e856-4233-b095-ddbd1ff73c4e
+
+curl -X POST https://lovebhagya.com/chat/initiate:continue \
+  -H "Content-Type: application/json" \
+  -d '{"uid": "73a4e3fe-3025-4799-8ede-a1b753f7caae",
+      "user_input": "for sure fitness",
+      "history": [
+        {
+          "content": "Start a conversation with the user arjun rampal who enjoys hobbies: fitness,reading,traveling,photography,music,biking.\nAsk friendly questions about their hobbies and follow up based on what `they say.\n\nIf no history is provided then initiate a question based on the hobbies otherwise continue the existing conversation.\nTo initiate: If user has no hobbies then ask user something like \"Hey arjun rampal: I was wondering what do you do in your free time? This helps me find better matches for you\"\nOr if the user has hobbies then ask for more details about their hobbies.\n\nKeep the conversation short and dont ask more than two to three questions.\nUsers dont want to chat a lot, continous questions will pester the user so look for ways to say goodbye and end the conversation soon.\n\nIn one conversation do not switch topics, only talk about one user hobby. \n\nYou will also be provided with previous user chats (if any). Unless you have had discussions on all hobbies already, do not discuss a topic that has been previously discussed.\nIf you have already had discussions on all user hobbies you can prompt the user to further discuss a hobby.\n\nEnd with \"Thank you for chatting, this information helps us improve the recommendation algorithm to find better matches for you.\"\n\nNOTE: Do a turn by turn conversation.\n\n*****PREVIOUS CHATS******\n\n\n\n**********END************",
+          "role": "system"
+        },
+        {
+          "content": "Hey Arjun Rampal! I was wondering, which hobby do you enjoy the most? Fitness, reading, traveling, photography, music, or biking? This helps me find better matches for you.",
+          "role": "assistant"
+        }
+      ]
+     }'
+
+curl -X POST https://lovebhagya.com/chat/preference:continue \
+  -H "Content-Type: application/json" \
+  -d '{"uid": "73a4e3fe-3025-4799-8ede-a1b753f7caae",
+      "user_input": ""Yeah sports like tennis or pickleball",",
+      "history": [{"content":"You are an AI assistant on a dating site Aligned, your job is to talk to users on the website.\n\nUser can tell you about their preferences like - i want matches of people in IT profession, or I want people in mid 30s etc,\nUsers can also talk to you about their current matches and what do you have to say about them.\nUsers can also talk to you about their past dates. Users can also talk about their hobbies sometimes.\n\nYou can ask follow up questions about their preferences or other topics to get some clarity.\n\nKeep the conversation short and dont ask more than two or three follow up questions.\nUsers dont want to chat a lot, continous questions will pester the user so look for ways to say goodbye and end the conversation soon.\n\nIn one conversation do not switch topics, strictly talk about what user is interested in. \n\nYou will also be provided with previous user chats (if any).\nIf you have already had discussions on all user hobbies you can prompt the user to further discuss a hobby.\n\nIf previous chat history is present. You can also summarize all previous preferences in talking about user preferences for users to have more clarity.\n\nEnd with \"Thank you for chatting, this information helps us improve the recommendation algorithm to find better matches for you.\"\n\nNOTE: Do a turn by turn conversation.\n\nPrevious chat history with user anmol tiwari .\n\n*****PREVIOUS CHATS******\n\n\n\n**********END************\n\nStarting a conversation with anmol tiwari :","role":"system"},{"content":"Got it! You prefer matches who play sports. Do you have any specific sports in mind, or are you open to all types?","role":"assistant"}],
+      "role": "assistant"
+    }'
+
+curl -X POST https://lovebhagya.com/account:action \
+  -H "Content-Type: application/json" \
+  -d '{"uid" : "84fb3928-e856-4233-b095-ddbd1ff73c4e", "action" : "align", "recommendation_uid" : "7eb3892a-de57-4841-84eb-d1a61fb2e5ba"}'
+
+curl -X GET https://lovebhagya.com/chat:initiate/84fb3928-e856-4233-b095-ddbd1ff73c4e
+
+curl -X POST https://lovebhagya.com/chat:preference \
+  -H "Content-Type: application/json" \
+  -d '{"uid" : "84fb3928-e856-4233-b095-ddbd1ff73c4e", "user_input" : "Only recommend my users who play sports"}'
+
+
+###########################################################################################################################################################################################
 curl -X POST http://localhost:8080/verify:email -F 'metadata={"email": "example@example.com"}'
 
 curl -X POST http://18.218.180.137:8080/verify:email -F 'metadata={"email": "example@example.com"}'
