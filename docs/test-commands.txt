@@ -45,6 +45,11 @@ curl -X POST http://localhost:8080/chat:preference \
   -H "Content-Type: application/json" \
   -d '{"uid" : "84fb3928-e856-4233-b095-ddbd1ff73c4e", "user_input" : "Only recommend my users who play sports"}'
 
+curl -X GET http://localhost:8080/e2echat:token/7eb3892a-de57-4841-84eb-d1a61fb2e5ba
+
+curl -X POST http://localhost:8080/e2echat:conversation \
+  -H "Content-Type: application/json" \
+  -d '{"uid1" : "84fb3928-e856-4233-b095-ddbd1ff73c4e", "uid2" : "84fb3928-e856-4233-b095-ddbd1ff73c4e"}'
 #######################################################################################################################################################################################
 
 Backend version 2:

@@ -7,56 +7,153 @@ import base64
 import asyncio
 from flask import send_file
 from datetime import datetime
-from dotenv import load_dotenv
 import requests
 import boto3
 from botocore.exceptions import NoCredentialsError
 from uuid import uuid4
 from PIL import Image
-
 import threading
-
 from geopy.geocoders import Nominatim
-#from absl import logging as log 
-
 from langchain.chat_models import ChatOpenAI
 from langchain.schema import HumanMessage, AIMessage, SystemMessage
-
-# from twilio.jwt.access_token import AccessToken
-# from twilio.jwt.access_token.grants import ChatGrant
-
 from config import config
 from flask import Flask, request, jsonify, make_response
 from snowflake_utils import SnowConnect
-
 from urllib.parse import urlparse
+from argon2 import PasswordHasher
+from argon2.exceptions import VerifyMismatchError
+from cryptography.fernet import Fernet
 
+from dotenv import load_dotenv
 load_dotenv()
+
+import re
+from twilio.jwt.access_token import AccessToken
+from twilio.jwt.access_token.grants import ChatGrant
+from twilio.rest import Client
 
 import logging as log
 
 log.basicConfig(
     format='%(levelname)s [%(filename)s:%(lineno)d] %(message)s',
     level=log.INFO
+)
+
+# Initialize encryption key
+def get_encryption_key():
+    """Get or create encryption key"""
+    key = os.getenv('ENCRYPTION_KEY')
+    if not key:
+        try:
+            secrets = get_secrets()
+            key = secrets.get('ENCRYPTION_KEY')
+        except Exception as e:
+            log.error(f"Error getting encryption key from secrets: {e}")
+            key = None
+    return key
+
+# Initialize Fernet cipher
+cipher_suite = Fernet(get_encryption_key())
+
+def encrypt_sensitive_data(data):
+    """Encrypt sensitive data using Fernet"""
+    if not data:
+        return None
+    return cipher_suite.encrypt(str(data).encode()).decode()
+
+def decrypt_sensitive_data(encrypted_data):
+    """Decrypt sensitive data using Fernet"""
+    if not encrypted_data:
+        return None
+    try:
+        return cipher_suite.decrypt(encrypted_data.encode()).decode()
+    except Exception as e:
+        log.error(f"Error decrypting data: {e}")
+        return None
+
+def encrypt_password(password):
+    """Hash password using Argon2"""
+    if not password:
+        return None
+    return ph.hash(str(password))
+
+def verify_password(stored_hash, provided_password):
+    """Verify a password against its hash"""
+    try:
+        ph.verify(stored_hash, provided_password)
+        return True
+    except VerifyMismatchError:
+        return False
+
+def validate_email(email):
+    """Validate email format"""
+    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    return bool(re.match(pattern, email))
+
+def validate_phone(phone):
+    """Validate phone number format"""
+    # Remove any non-digit characters
+    phone = re.sub(r'\D', '', phone)
+    # Check if the phone number has a valid length (adjust based on your requirements)
+    return len(phone) >= 10 and len(phone) <= 15
+
+# Initialize Argon2 password hasher
+ph = PasswordHasher(
+    time_cost=3,        # Number of iterations
+    memory_cost=65536,  # Memory usage in KiB
+    parallelism=4,      # Number of parallel threads
+    hash_len=32,        # Length of the hash in bytes
+    salt_len=16         # Length of the salt in bytes
+)
+
+def get_secrets():
+    """Load sensitive secrets from AWS Secrets Manager"""
+    secret_name = config.aws_secrets_group  # Replace with your secret name
+    region_name = config.REGION
+
+    # Create a Secrets Manager client
+    session = boto3.session.Session()
+    client = session.client(
+        service_name='secretsmanager',
+        region_name=region_name
     )
 
-def run_async_task(coro):
-    asyncio.run(coro)
+    try:
+        get_secret_value_response = client.get_secret_value(
+            SecretId=secret_name
+        )
+    except Exception as e:
+        log.error(f"Error getting secrets: {e}")
+        raise e
+    else:
+        if 'SecretString' in get_secret_value_response:
+            secret = json.loads(get_secret_value_response['SecretString'])
+            return secret
 
-#log.set_verbosity(log.INFO)
+
+# Load secrets
+secrets = get_secrets()
+
 # Configure AWS s3
 s3 = boto3.client(
-        's3',
-        aws_access_key_id=os.getenv('S3_ACCESS_ID'),
-        aws_secret_access_key=os.getenv('S3_ACCESS_KEY')
-    )
+    's3',
+    aws_access_key_id=secrets["S3_ACCESS_ID"],
+    aws_secret_access_key=secrets['S3_ACCESS_KEY']
+)
 
-BUCKET_NAME = os.getenv('BUCKET')
-REGION = os.getenv("REGION")
+BUCKET_NAME = config.BUCKET
+REGION = config.REGION
 CURRENT_DIR = os.getcwd()
 
 # Setup your LLM (choose gpt-4o / gpt-3.5-turbo etc.)
-llm = ChatOpenAI(model=config.OPENAI_MODEL_NAME, temperature=0.7)
+llm = ChatOpenAI(
+    model=config.OPENAI_MODEL_NAME, 
+    temperature=0.7,
+    openai_api_key=secrets['OPENAI_API_KEY']
+)
+
+def run_async_task(coro):
+    asyncio.run(coro)
 
 def upload_file_to_s3(file_path, filename):
     try:
@@ -199,7 +296,7 @@ def health_check():
 
 @app.route('/account:create', methods=['POST'])
 def create():
-    # Recieve multipart request
+    # Receive multipart request
     # Get JSON part from form data
     metadata = request.form.get('metadata')
     if not metadata:
@@ -209,7 +306,16 @@ def create():
     except json.JSONDecodeError:
         return jsonify({'error': 'Invalid JSON'}), 400
 
-    # Recieve encoded images
+    # Validate email and phone
+    email = json_data.get('email', '').lower()
+    phone = str(json_data.get('phone', ''))
+    
+    if not validate_email(email):
+        return jsonify({'error': 'Invalid email format'}), 400
+    if not validate_phone(phone):
+        return jsonify({'error': 'Invalid phone number format'}), 400
+
+    # Receive encoded images
     profile_images = request.files.getlist("images")
 
     log.info(f'Profile Images: {len(profile_images)}')
@@ -217,11 +323,14 @@ def create():
     profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
     
     insert_sql = f"INSERT INTO {config.PROFILE_TABLE} (UID, PASSWORD, NAME, PHONE, EMAIL, CITY, COUNTRY, PROFESSION, BIRTH_CITY, BIRTH_COUNTRY, DOB, TOB, GENDER, HOBBIES, LAT, LONG, IMAGES, CREATED, LOGIN) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
-    uid= str(uuid4())
-    password = str(json_data['password'])
-    name =json_data['name'].lower() 
-    phone = str(json_data['phone'])
-    email = json_data['email'].lower()
+    uid = str(uuid4())
+    
+    # Encrypt sensitive data
+    password = encrypt_password(json_data['password'])
+    encrypted_email = encrypt_sensitive_data(email)
+    encrypted_phone = encrypt_sensitive_data(phone)
+    
+    name = json_data['name'].lower() 
     city = json_data['city'].lower() 
     country = json_data['country'].lower() 
     birth_city = json_data['birth_city'].lower()
@@ -267,7 +376,7 @@ def create():
     else:
         hobbies = ''
 
-    profile_connect.cursor.execute(insert_sql, (uid, password, name, phone, email, city, country, profession, birth_city, birth_country, dob, tob, gender, hobbies, lat, long, images, timestamp, timestamp))
+    profile_connect.cursor.execute(insert_sql, (uid, password, name, encrypted_phone, encrypted_email, city, country, profession, birth_city, birth_country, dob, tob, gender, hobbies, lat, long, images, timestamp, timestamp))
     profile_connect.conn.commit()
     
     if gender == 'male':
@@ -341,6 +450,24 @@ async def put_yaml_to_s3(key, yaml_content):
     except Exception as e:
         log.warning(f'ERROR: Unable to update { key } to s3 due to { e }')
 
+def sort_notifications(notifications):
+    updated_time = []
+    messages = []
+
+    for item in notifications:
+        if "updated" in item and "message" in item:
+            try:
+                updated_time.append(datetime.strptime(item["updated"]))
+                messages.append(item["message"])
+            except Exception as e:
+                log.warning(f'Unable to process notification: {item}, Error: {e}')
+
+    sorted_notifications = sorted(zip(updated_time, messages), key = lambda x: x[0], reverse=True)
+    required_notifications = sorted_notifications[:config.MAX_NOTIFICATIONS]
+    notifications = [{"message" : item[1], "updated" : item[0]} for item in required_notifications]
+
+    return notifications
+
 
 @app.route('/account:login', methods=['POST'])
 def login():
@@ -351,22 +478,25 @@ def login():
     if not json_data:
         return jsonify({'error': 'Missing JSON data'}), 400
 
-    email = json_data.get('email')
+    email = json_data.get('email', '').lower()
     password = json_data.get('password')
     
     if not email or not password:
         return jsonify({'error': 'Missing email or password'}), 400
 
+    if not validate_email(email):
+        return jsonify({'error': 'Invalid email format'}), 400
 
     profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
-    select_sql = f"SELECT UID, PASSWORD, NOTIFICATIONS FROM {config.PROFILE_TABLE} WHERE EMAIL = '{email}'"
-    profile_connect.cursor.execute(select_sql)
+    select_sql = f"SELECT UID, PASSWORD, NOTIFICATIONS, EMAIL, PHONE FROM {config.PROFILE_TABLE} WHERE EMAIL = %s"
+    profile_connect.cursor.execute(select_sql, (encrypt_sensitive_data(email),))
     results = profile_connect.cursor.fetchall()
 
     if not results:
         return jsonify({'LOGIN': 'UNSUCCESSFUL', 'ERROR': 'Email not found.'})
     result = results[-1] if len(results) > 1 else results[0]
-    if password != result[1]:
+    
+    if not verify_password(result[1], password):
         return jsonify({'LOGIN': 'UNSUCCESSFUL', 'ERROR': 'Password is Incorrect.'})
 
     uid = result[0]
@@ -388,12 +518,26 @@ def login():
     else:
         notifications = []
 
-    return jsonify({'LOGIN': 'SUCCESSFUL', 'UID': uid, 'NOTIFICATIONS' : notifications, 'ERROR': 'OK'})
+    if len(notifications) > 0:
+        notifications = sort_notifications(notifications)
+
+    # Decrypt email and phone for response
+    decrypted_email = decrypt_sensitive_data(result[3])
+    decrypted_phone = decrypt_sensitive_data(result[4])
+
+    return jsonify({
+        'LOGIN': 'SUCCESSFUL', 
+        'UID': uid, 
+        'NOTIFICATIONS': notifications, 
+        'EMAIL': decrypted_email,
+        'PHONE': decrypted_phone,
+        'ERROR': 'OK'
+    })
 
 @app.route('/get:user/<uid>', methods=['GET'])
 def get_user(uid):
     profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
-    select_sql = f"SELECT NAME, DOB, CITY, COUNTRY, IMAGES, HOBBIES, PROFESSION, GENDER, NOTIFICATIONS FROM {config.PROFILE_TABLE} WHERE UID = '{uid}'"
+    select_sql = f"SELECT NAME, DOB, CITY, COUNTRY, IMAGES, HOBBIES, PROFESSION, GENDER, NOTIFICATIONS, EMAIL, PHONE FROM {config.PROFILE_TABLE} WHERE UID = '{uid}'"
     profile_connect.cursor.execute(select_sql)
     result = profile_connect.cursor.fetchone()
 
@@ -411,6 +555,8 @@ def get_user(uid):
         'HOBBIES': result[5],
         'PROFESSION': result[6],
         'GENDER': result[7],
+        'EMAIL': decrypt_sensitive_data( result[9] ),
+        'PHONE' : decrypt_sensitive_data( result[10] ),
         'ERROR': 'OK'
     }
 
@@ -474,6 +620,13 @@ def get_recommendations(uid):
 def get_matches(uid):
     return jsonify({'cards': fetch_queue(uid, 'MATCHES')})
 
+# TODO This generates a summary of all users in the user queues, their names, hobbies, profession, age and score
+# This will be provided to chat:initiate and chat:preference
+def summarize_queues(uid):
+    recommendations = get_recommendations(uid)
+    awaiting = get_awaiting(uid)
+    matches = get_matches(uid)
+    summary = f'User has following recommendations for potential matches'
 
 def get_encoded_images(image_paths):
     '''
@@ -547,57 +700,6 @@ def get_profile(uid):
     output['error'] = 'OK'
 
     return jsonify(output)
-
-@app.route('/find:profiles', methods=['POST'])
-def find_profiles():
-    metadata = request.form.get('metadata')
-    if not metadata:
-        return jsonify({'error': 'Missing metadata'}), 400
-    try:
-        json_data = json.loads(metadata)
-    except Exception as e:
-        raise Exception(e)
-    uids = json_data.get('uid', None)
-
-    if uids is None:
-        return jsonify({"error": "Missing 'uid' in url"}), 400
-    
-    if isinstance(uids, list):
-    
-        profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
-        columns = ['UID', 'NAME', 'DOB', 'CITY', 'COUNTRY', 'IMAGES', 'HOBBIES', 'PROFESSION', 'GENDER']
-        columns_string = ', '.join(columns)
-
-        # GET LAST LOGIN AND UID OF USER
-        
-        outputs = []
-        for uid in uids:
-            select_sql = f"SELECT {columns_string} FROM {config.PROFILE_TABLE} WHERE UID= '{uid}'"
-            profile_connect.cursor.execute(select_sql)
-            results = profile_connect.cursor.fetchall()
-
-            if len(results) > 1:
-                log.info(f'Result is not unique for uid {uid}')
-                result = results[-1]
-            elif len(results) == 1:
-                result = results[0]
-            else:
-                log.info(f'No result for uid: {uid}')
-                result = None
-
-            if result is None:
-                output = {'error' : f'No result for uid: {uid}'}
-            else:
-                output = {}
-                for idx, name in enumerate(columns):
-                    output[name] = result[idx]
-                output['error'] = 'OK'
-
-            outputs.append(output)
-        response_output = {'results' : outputs, 'error' : 'OK'}
-        profile_connect.close()
-
-    return jsonify(response_output)
 
 async def update_notifications_or_chats(uid, new_notifications_or_chats, column):
 
@@ -772,15 +874,21 @@ def verify_email():
     try:
         json_data = request.get_json()
         email = json_data.get('email')
+        if not email:
+            return jsonify({'error': 'Missing email'}), 400
     except:
         return jsonify({'error': 'Invalid JSON or missing email'}), 400
     
     log.info(f"Username: {os.getenv('SNOWFLAKE_USERNAME')}, Account_id: {os.getenv('SNOWFLAKE_ACCOUNT_ID')}")
 
+    # Encrypt the email using Argon2
+    encrypted_email = encrypt_sensitive_data(email)
+
     profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
 
-    sql_fetch = f"SELECT UID FROM {config.PROFILE_TABLE} WHERE EMAIL='{email}'"
-    profile_connect.cursor.execute(sql_fetch)
+    # Compare with encrypted email in database
+    sql_fetch = f"SELECT UID FROM {config.PROFILE_TABLE} WHERE EMAIL=%s"
+    profile_connect.cursor.execute(sql_fetch, (encrypted_email,))
     results = profile_connect.cursor.fetchall()
 
     profile_connect.conn.commit()
@@ -814,11 +922,19 @@ def update_account():
         'password', 'name', 'phone', 'city', 'country', 'profession',
         'birth_city', 'birth_country', 'dob', 'tob', 'gender', 'hobbies'
     ]
-    if 'email' in json_data and isinstance(json_data['email'], str) and json_data['email'] != '':
-        return jsonify({'error' : 'You cannot modify email'})
+
+    # Validate and encrypt sensitive data
+    if 'phone' in json_data:
+        phone = str(json_data['phone'])
+        if not validate_phone(phone):
+            return jsonify({'error': 'Invalid phone number format'}), 400
+        fields['PHONE'] = encrypt_sensitive_data(phone)
+
+    if 'password' in json_data:
+        fields['PASSWORD'] = encrypt_sensitive_data(json_data['password'])
 
     for field in allowed_fields:
-        if field in json_data:
+        if field in json_data and field not in ['phone', 'password']:  # Skip already handled fields
             value = json_data[field]
             if isinstance(value, str) and value != '':
                 value = value.lower()
@@ -1265,6 +1381,178 @@ def continue_preference():
         history = [{"role": "system", "content" : system_prompt}, {"role" : "user", "content" : user_input}, {"role" : "assistant", "content" : assistant_msg}]
 
         return jsonify({"role": "assistant", "message": assistant_msg, "history": history, "continue" : True })
+
+@app.route('/e2echat:token/<string:uid>', methods=['GET'])
+def generate_chat_token(uid):
+    """Generate a Twilio access token for chat"""
+    try:
+        if uid is None:
+            return jsonify({"error": "Missing 'uid' in url"}), 400
+
+        # Create an Access Token
+        token = AccessToken(
+            os.getenv('TWILIO_ACCOUNT_SID'),
+            os.getenv('TWILIO_API_KEY'),
+            os.getenv('TWILIO_API_SECRET'),
+            identity=uid
+        )
+
+        # Create a Chat grant and add it to the token
+        chat_grant = ChatGrant(service_sid=config.TWILIO_CHAT_SERVICE_SID)
+        token.add_grant(chat_grant)
+
+        return jsonify({
+            'token': token.to_jwt(),
+            'error': 'OK'
+        })
+
+    except Exception as e:
+        log.error(f"Error generating chat token: {e}")
+        return jsonify({'error': str(e)}), 500
+
+# @app.route('/e2echat:conversation', methods=['POST'])
+# def get_conversation():
+#     """Get or create a conversation between two users"""
+#     try:
+#         json_data = request.get_json()
+#         if not json_data:
+#             return jsonify({'error': 'Missing JSON data'}), 400
+
+#         uid1 = json_data.get('uid1')
+#         uid2 = json_data.get('uid2')
+        
+#         if not uid1 or not uid2:
+#             return jsonify({'error': 'Missing uid1 or uid2'}), 400
+
+#         # Initialize Twilio client
+#         client = Client(os.getenv('TWILIO_API_KEY'), os.getenv('TWILIO_API_SECRET'), os.getenv('TWILIO_ACCOUNT_SID'))
+
+#         # Check if conversation exists in matching table
+#         matching_connect = SnowConnect(config.MATCHING_TABLE_WAREHOUSE, config.MATCHING_TABLE_DATABASE, config.MATCHING_TABLE_SCHEMA)
+#         select_sql = f"""
+#             SELECT CONVERSATION_SID 
+#             FROM {config.MATCHING_TABLE} 
+#             WHERE (UID1 = %s AND UID2 = %s) OR (UID1 = %s AND UID2 = %s)
+#         """
+#         matching_connect.cursor.execute(select_sql, (uid1, uid2, uid2, uid1))
+#         result = matching_connect.cursor.fetchone()
+
+#         if result and result[0]:
+#             # Conversation exists, return the SID
+#             conversation_sid = result[0]
+#         else:
+#             # Create new conversation
+#             conversation = client.conversations.conversations.create(
+#                 friendly_name=f"Chat between {uid1} and {uid2}"
+#             )
+#             conversation_sid = conversation.sid
+
+#             # Add participants
+#             client.conversations.conversations(conversation_sid).participants.create(
+#                 identity=uid1
+#             )
+#             client.conversations.conversations(conversation_sid).participants.create(
+#                 identity=uid2
+#             )
+
+#             # Store conversation SID in matching table
+#             update_sql = f"""
+#                 UPDATE {config.MATCHING_TABLE} 
+#                 SET CONVERSATION_SID = %s 
+#                 WHERE (UID1 = %s AND UID2 = %s) OR (UID1 = %s AND UID2 = %s)
+#             """
+#             matching_connect.cursor.execute(update_sql, (conversation_sid, uid1, uid2, uid2, uid1))
+#             matching_connect.conn.commit()
+
+#         matching_connect.close()
+
+#         return jsonify({
+#             'conversation_sid': conversation_sid,
+#             'error': 'OK'
+#         })
+
+#     except Exception as e:
+#         log.error(f"Error managing conversation: {e}")
+#         return jsonify({'error': str(e)}), 500
+    
+def safely_add_participant(client, conversation_sid, identity):
+    try:
+        client.conversations.v1.conversations(conversation_sid).participants.create(identity=identity)
+    except Exception as e:
+        if "Participant already exists" in str(e):
+            log.warning(f"Participant {identity} already exists in conversation {conversation_sid}")
+        else:
+            raise
+
+@app.route('/e2echat:conversation', methods=['POST'])
+def get_conversation():
+    """Get or create a conversation between two users via Twilio"""
+    try:
+        json_data = request.get_json()
+        if not json_data:
+            return jsonify({'error': 'Missing JSON data'}), 400
+
+        uid1 = json_data.get('uid1')
+        uid2 = json_data.get('uid2')
+        if not uid1 or not uid2:
+            return jsonify({'error': 'Missing uid1 or uid2'}), 400
+
+        # Init Twilio client
+        client = Client(
+            os.getenv('TWILIO_API_KEY'),
+            os.getenv('TWILIO_API_SECRET'),
+            os.getenv('TWILIO_ACCOUNT_SID')
+        )
+
+        # Connect to Snowflake
+        matching_connect = SnowConnect(
+            config.MATCHING_TABLE_WAREHOUSE,
+            config.MATCHING_TABLE_DATABASE,
+            config.MATCHING_TABLE_SCHEMA
+        )
+
+        # Check if conversation already exists
+        select_sql = f"""
+            SELECT CONVERSATION_SID 
+            FROM {config.MATCHING_TABLE} 
+            WHERE (UID1 = %s AND UID2 = %s) OR (UID1 = %s AND UID2 = %s)
+        """
+        matching_connect.cursor.execute(select_sql, (uid1, uid2, uid2, uid1))
+        result = matching_connect.cursor.fetchone()
+
+        if result and result[0]:
+            conversation_sid = result[0]
+        else:
+            # Create new conversation
+            conversation = client.conversations.v1.conversations.create(
+                friendly_name=f"Chat between {uid1} and {uid2}"
+            )
+            conversation_sid = conversation.sid
+
+            # Add participants if they’re not already in the conversation
+            for uid in [uid1, uid2]:
+                safely_add_participant(client, conversation_sid, uid1)
+                safely_add_participant(client, conversation_sid, uid2)
+
+            # Store conversation SID in your DB
+            update_sql = f"""
+                UPDATE {config.MATCHING_TABLE} 
+                SET CONVERSATION_SID = %s 
+                WHERE (UID1 = %s AND UID2 = %s) OR (UID1 = %s AND UID2 = %s)
+            """
+            matching_connect.cursor.execute(update_sql, (conversation_sid, uid1, uid2, uid2, uid1))
+            matching_connect.conn.commit()
+
+        matching_connect.close()
+
+        return jsonify({
+            'conversation_sid': conversation_sid,
+            'error': 'OK'
+        })
+
+    except Exception as e:
+        log.error(f"Error managing conversation: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.after_request
 def add_cors_headers(response):

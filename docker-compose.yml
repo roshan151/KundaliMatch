@@ -1,16 +1,16 @@
 services:
-  backend-service-amd64:
-    build:
-      context: ./service-backend
-    platform: linux/amd64
+  backend-service:
+    build: ./service-backend
     ports:
       - "8080:8080"
     depends_on:
-      - kundali-service-amd64
+      - kundali-service
+    environment:
+      AWS_DEFAULT_REGION: us-east-2
+    volumes:
+      - ~/.aws:/root/.aws:ro
 
-  kundali-service-amd64:
-    build: 
-      context: ./service-kundali
-    platform: linux/amd64
+  kundali-service:
+    build: ./service-kundali
     ports:
       - "8000:8000"

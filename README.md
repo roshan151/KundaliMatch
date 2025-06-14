@@ -81,3 +81,8 @@ NOTE: ON ec2 PRECEED COMMANDS WITH SUDO
 
 ## Edit NGINX config file
 1. sudo nano /etc/nginx/conf.d/lovebhagya.com.conf
+
+
+## Encryption + Security June 14th
+Run dockerfile with aws credentials (.env is removed) - credentials + secrets manager
+docker run --rm -p 8080:8080 -v ~/.aws:/root/.aws:ro -e AWS_DEFAULT_REGION=us-east-2
