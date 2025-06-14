@@ -7,7 +7,7 @@ from config import config
 
 def get_secrets():
     """Load sensitive secrets from AWS Secrets Manager"""
-    secret_name = "kundali-match-secrets"  # Replace with your secret name
+    secret_name = config.aws_secrets_group  # Replace with your secret name
     region_name = config.REGION
 
     # Create a Secrets Manager client

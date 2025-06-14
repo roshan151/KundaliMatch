@@ -9,3 +9,6 @@ absl-py
 openai
 langchain
 langchain_community
+argon2-cffi
+twilio
+crewai

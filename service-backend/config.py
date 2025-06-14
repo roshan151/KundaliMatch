@@ -9,6 +9,7 @@ class Config:
     SCORE_OUT_OF = 10
     MAX_GEOCODE_TIMEOUT = 15
     MAX_DESTINY_CHAT = 15
+    MAX_NOTIFICATIONS = 50
 
     # Snowflake Configuration
     PROFILE_TABLE = "PROFILE_DB"
@@ -25,7 +26,7 @@ class Config:
     # AWS Configuration
     BUCKET = 'match-bucket-2025'
     REGION = 'us-east-2'
-    S3_ACCESS_ID = 'AKIA4VCBHW3O3T5JEZU5'
+    aws_secrets_group = 'ALIGNED_SECRET_ACCESS'
 
     # Service Configuration
     KUNDALI_SERVICE_URL = "http://kundali-service"
@@ -34,6 +35,6 @@ class Config:
     OPENAI_MODEL_NAME = "gpt-4o-mini"
 
     # Twilio Configuration
-    TWILIO_CHAT_SERVICE_SID = 'your-chat-service-sid'  # Safe to keep in config as it's just a service identifier
+    TWILIO_CHAT_SERVICE_SID = 'MG036a30e46a73004e8c82cb59d1b9f520' 
 
 config = Config()
