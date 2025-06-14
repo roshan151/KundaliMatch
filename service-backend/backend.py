@@ -7,56 +7,112 @@ import base64
 import asyncio
 from flask import send_file
 from datetime import datetime
-from dotenv import load_dotenv
 import requests
 import boto3
 from botocore.exceptions import NoCredentialsError
 from uuid import uuid4
 from PIL import Image
-
 import threading
-
 from geopy.geocoders import Nominatim
-#from absl import logging as log 
-
 from langchain.chat_models import ChatOpenAI
 from langchain.schema import HumanMessage, AIMessage, SystemMessage
-
-# from twilio.jwt.access_token import AccessToken
-# from twilio.jwt.access_token.grants import ChatGrant
-
 from config import config
 from flask import Flask, request, jsonify, make_response
 from snowflake_utils import SnowConnect
-
 from urllib.parse import urlparse
-
-load_dotenv()
+from argon2 import PasswordHasher
+from argon2.exceptions import VerifyMismatchError
+import re
 
 import logging as log
 
 log.basicConfig(
     format='%(levelname)s [%(filename)s:%(lineno)d] %(message)s',
     level=log.INFO
+)
+
+def get_secrets():
+    """Load sensitive secrets from AWS Secrets Manager"""
+    secret_name = "kundali-match-secrets"  # Replace with your secret name
+    region_name = config.REGION
+
+    # Create a Secrets Manager client
+    session = boto3.session.Session()
+    client = session.client(
+        service_name='secretsmanager',
+        region_name=region_name
     )
 
-def run_async_task(coro):
-    asyncio.run(coro)
+    try:
+        get_secret_value_response = client.get_secret_value(
+            SecretId=secret_name
+        )
+    except Exception as e:
+        log.error(f"Error getting secrets: {e}")
+        raise e
+    else:
+        if 'SecretString' in get_secret_value_response:
+            secret = json.loads(get_secret_value_response['SecretString'])
+            return secret
 
-#log.set_verbosity(log.INFO)
+# Initialize Argon2 password hasher
+ph = PasswordHasher(
+    time_cost=3,        # Number of iterations
+    memory_cost=65536,  # Memory usage in KiB
+    parallelism=4,      # Number of parallel threads
+    hash_len=32,        # Length of the hash in bytes
+    salt_len=16         # Length of the salt in bytes
+)
+
+def encrypt_sensitive_data(data):
+    """Encrypt sensitive data using Argon2"""
+    if not data:
+        return None
+    return ph.hash(str(data))
+
+def verify_password(stored_hash, provided_password):
+    """Verify a password against its hash"""
+    try:
+        ph.verify(stored_hash, provided_password)
+        return True
+    except VerifyMismatchError:
+        return False
+
+def validate_email(email):
+    """Validate email format"""
+    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    return bool(re.match(pattern, email))
+
+def validate_phone(phone):
+    """Validate phone number format"""
+    # Remove any non-digit characters
+    phone = re.sub(r'\D', '', phone)
+    # Check if the phone number has a valid length (adjust based on your requirements)
+    return len(phone) >= 10 and len(phone) <= 15
+
+# Load secrets
+secrets = get_secrets()
+
 # Configure AWS s3
 s3 = boto3.client(
-        's3',
-        aws_access_key_id=os.getenv('S3_ACCESS_ID'),
-        aws_secret_access_key=os.getenv('S3_ACCESS_KEY')
-    )
+    's3',
+    aws_access_key_id=config.S3_ACCESS_ID,
+    aws_secret_access_key=secrets['S3_ACCESS_KEY']
+)
 
-BUCKET_NAME = os.getenv('BUCKET')
-REGION = os.getenv("REGION")
+BUCKET_NAME = config.BUCKET
+REGION = config.REGION
 CURRENT_DIR = os.getcwd()
 
 # Setup your LLM (choose gpt-4o / gpt-3.5-turbo etc.)
-llm = ChatOpenAI(model=config.OPENAI_MODEL_NAME, temperature=0.7)
+llm = ChatOpenAI(
+    model=config.OPENAI_MODEL_NAME, 
+    temperature=0.7,
+    openai_api_key=secrets['OPENAI_API_KEY']
+)
+
+def run_async_task(coro):
+    asyncio.run(coro)
 
 def upload_file_to_s3(file_path, filename):
     try:
@@ -199,7 +255,7 @@ def health_check():
 
 @app.route('/account:create', methods=['POST'])
 def create():
-    # Recieve multipart request
+    # Receive multipart request
     # Get JSON part from form data
     metadata = request.form.get('metadata')
     if not metadata:
@@ -209,7 +265,16 @@ def create():
     except json.JSONDecodeError:
         return jsonify({'error': 'Invalid JSON'}), 400
 
-    # Recieve encoded images
+    # Validate email and phone
+    email = json_data.get('email', '').lower()
+    phone = str(json_data.get('phone', ''))
+    
+    if not validate_email(email):
+        return jsonify({'error': 'Invalid email format'}), 400
+    if not validate_phone(phone):
+        return jsonify({'error': 'Invalid phone number format'}), 400
+
+    # Receive encoded images
     profile_images = request.files.getlist("images")
 
     log.info(f'Profile Images: {len(profile_images)}')
@@ -217,11 +282,14 @@ def create():
     profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
     
     insert_sql = f"INSERT INTO {config.PROFILE_TABLE} (UID, PASSWORD, NAME, PHONE, EMAIL, CITY, COUNTRY, PROFESSION, BIRTH_CITY, BIRTH_COUNTRY, DOB, TOB, GENDER, HOBBIES, LAT, LONG, IMAGES, CREATED, LOGIN) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
-    uid= str(uuid4())
-    password = str(json_data['password'])
-    name =json_data['name'].lower() 
-    phone = str(json_data['phone'])
-    email = json_data['email'].lower()
+    uid = str(uuid4())
+    
+    # Encrypt sensitive data
+    password = encrypt_sensitive_data(json_data['password'])
+    encrypted_email = encrypt_sensitive_data(email)
+    encrypted_phone = encrypt_sensitive_data(phone)
+    
+    name = json_data['name'].lower() 
     city = json_data['city'].lower() 
     country = json_data['country'].lower() 
     birth_city = json_data['birth_city'].lower()
@@ -267,7 +335,7 @@ def create():
     else:
         hobbies = ''
 
-    profile_connect.cursor.execute(insert_sql, (uid, password, name, phone, email, city, country, profession, birth_city, birth_country, dob, tob, gender, hobbies, lat, long, images, timestamp, timestamp))
+    profile_connect.cursor.execute(insert_sql, (uid, password, name, encrypted_phone, encrypted_email, city, country, profession, birth_city, birth_country, dob, tob, gender, hobbies, lat, long, images, timestamp, timestamp))
     profile_connect.conn.commit()
     
     if gender == 'male':
@@ -351,22 +419,25 @@ def login():
     if not json_data:
         return jsonify({'error': 'Missing JSON data'}), 400
 
-    email = json_data.get('email')
+    email = json_data.get('email', '').lower()
     password = json_data.get('password')
     
     if not email or not password:
         return jsonify({'error': 'Missing email or password'}), 400
 
+    if not validate_email(email):
+        return jsonify({'error': 'Invalid email format'}), 400
 
     profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
-    select_sql = f"SELECT UID, PASSWORD, NOTIFICATIONS FROM {config.PROFILE_TABLE} WHERE EMAIL = '{email}'"
-    profile_connect.cursor.execute(select_sql)
+    select_sql = f"SELECT UID, PASSWORD, NOTIFICATIONS FROM {config.PROFILE_TABLE} WHERE EMAIL = %s"
+    profile_connect.cursor.execute(select_sql, (encrypt_sensitive_data(email),))
     results = profile_connect.cursor.fetchall()
 
     if not results:
         return jsonify({'LOGIN': 'UNSUCCESSFUL', 'ERROR': 'Email not found.'})
     result = results[-1] if len(results) > 1 else results[0]
-    if password != result[1]:
+    
+    if not verify_password(result[1], password):
         return jsonify({'LOGIN': 'UNSUCCESSFUL', 'ERROR': 'Password is Incorrect.'})
 
     uid = result[0]
@@ -814,11 +885,19 @@ def update_account():
         'password', 'name', 'phone', 'city', 'country', 'profession',
         'birth_city', 'birth_country', 'dob', 'tob', 'gender', 'hobbies'
     ]
-    if 'email' in json_data and isinstance(json_data['email'], str) and json_data['email'] != '':
-        return jsonify({'error' : 'You cannot modify email'})
+
+    # Validate and encrypt sensitive data
+    if 'phone' in json_data:
+        phone = str(json_data['phone'])
+        if not validate_phone(phone):
+            return jsonify({'error': 'Invalid phone number format'}), 400
+        fields['PHONE'] = encrypt_sensitive_data(phone)
+
+    if 'password' in json_data:
+        fields['PASSWORD'] = encrypt_sensitive_data(json_data['password'])
 
     for field in allowed_fields:
-        if field in json_data:
+        if field in json_data and field not in ['phone', 'password']:  # Skip already handled fields
             value = json_data[field]
             if isinstance(value, str) and value != '':
                 value = value.lower()
