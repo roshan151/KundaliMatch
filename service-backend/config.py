@@ -33,4 +33,7 @@ class Config:
     PROMPTS_YAML = 'prompts.yaml'
     OPENAI_MODEL_NAME = "gpt-4o-mini"
 
+    # Twilio Configuration
+    TWILIO_CHAT_SERVICE_SID = 'your-chat-service-sid'  # Safe to keep in config as it's just a service identifier
+
 config = Config()

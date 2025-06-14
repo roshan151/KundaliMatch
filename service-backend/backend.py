@@ -23,6 +23,9 @@ from urllib.parse import urlparse
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 import re
+from twilio.jwt.access_token import AccessToken
+from twilio.jwt.access_token.grants import ChatGrant
+from twilio.rest import Client
 
 import logging as log
 
@@ -1344,6 +1347,104 @@ def continue_preference():
         history = [{"role": "system", "content" : system_prompt}, {"role" : "user", "content" : user_input}, {"role" : "assistant", "content" : assistant_msg}]
 
         return jsonify({"role": "assistant", "message": assistant_msg, "history": history, "continue" : True })
+
+@app.route('/chat:token', methods=['POST'])
+def generate_chat_token():
+    """Generate a Twilio access token for chat"""
+    try:
+        json_data = request.get_json()
+        if not json_data:
+            return jsonify({'error': 'Missing JSON data'}), 400
+
+        uid = json_data.get('uid')
+        if not uid:
+            return jsonify({'error': 'Missing uid'}), 400
+
+        # Create an Access Token
+        token = AccessToken(
+            secrets['TWILIO_ACCOUNT_SID'],
+            secrets['TWILIO_API_KEY'],
+            secrets['TWILIO_API_SECRET'],
+            identity=uid
+        )
+
+        # Create a Chat grant and add it to the token
+        chat_grant = ChatGrant(service_sid=config.TWILIO_CHAT_SERVICE_SID)
+        token.add_grant(chat_grant)
+
+        return jsonify({
+            'token': token.to_jwt().decode(),
+            'error': 'OK'
+        })
+
+    except Exception as e:
+        log.error(f"Error generating chat token: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/chat:conversation', methods=['POST'])
+def get_conversation():
+    """Get or create a conversation between two users"""
+    try:
+        json_data = request.get_json()
+        if not json_data:
+            return jsonify({'error': 'Missing JSON data'}), 400
+
+        uid1 = json_data.get('uid1')
+        uid2 = json_data.get('uid2')
+        
+        if not uid1 or not uid2:
+            return jsonify({'error': 'Missing uid1 or uid2'}), 400
+
+        # Initialize Twilio client
+        client = Client(secrets['TWILIO_API_KEY'], secrets['TWILIO_API_SECRET'], secrets['TWILIO_ACCOUNT_SID'])
+
+        # Check if conversation exists in matching table
+        matching_connect = SnowConnect(config.MATCHING_TABLE_WAREHOUSE, config.MATCHING_TABLE_DATABASE, config.MATCHING_TABLE_SCHEMA)
+        select_sql = f"""
+            SELECT CONVERSATION_SID 
+            FROM {config.MATCHING_TABLE} 
+            WHERE (UID1 = %s AND UID2 = %s) OR (UID1 = %s AND UID2 = %s)
+        """
+        matching_connect.cursor.execute(select_sql, (uid1, uid2, uid2, uid1))
+        result = matching_connect.cursor.fetchone()
+
+        if result and result[0]:
+            # Conversation exists, return the SID
+            conversation_sid = result[0]
+        else:
+            # Create new conversation
+            conversation = client.conversations.conversations.create(
+                friendly_name=f"Chat between {uid1} and {uid2}"
+            )
+            conversation_sid = conversation.sid
+
+            # Add participants
+            client.conversations.conversations(conversation_sid).participants.create(
+                identity=uid1
+            )
+            client.conversations.conversations(conversation_sid).participants.create(
+                identity=uid2
+            )
+
+            # Store conversation SID in matching table
+            update_sql = f"""
+                UPDATE {config.MATCHING_TABLE} 
+                SET CONVERSATION_SID = %s 
+                WHERE (UID1 = %s AND UID2 = %s) OR (UID1 = %s AND UID2 = %s)
+            """
+            matching_connect.cursor.execute(update_sql, (conversation_sid, uid1, uid2, uid2, uid1))
+            matching_connect.conn.commit()
+
+        matching_connect.close()
+
+        return jsonify({
+            'conversation_sid': conversation_sid,
+            'error': 'OK'
+        })
+
+    except Exception as e:
+        log.error(f"Error managing conversation: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.after_request
 def add_cors_headers(response):
