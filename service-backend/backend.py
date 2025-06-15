@@ -9,6 +9,7 @@ from flask import send_file
 from datetime import datetime
 import requests
 import boto3
+import hashlib
 from botocore.exceptions import NoCredentialsError
 from uuid import uuid4
 from PIL import Image
@@ -24,12 +25,12 @@ from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 from cryptography.fernet import Fernet
 
-from dotenv import load_dotenv
-load_dotenv()
+# from dotenv import load_dotenv
+# load_dotenv()
 
 import re
-from twilio.jwt.access_token import AccessToken
 from twilio.jwt.access_token.grants import ChatGrant
+from twilio.jwt.access_token import AccessToken
 from twilio.rest import Client
 
 import logging as log
@@ -39,63 +40,6 @@ log.basicConfig(
     level=log.INFO
 )
 
-# Initialize encryption key
-def get_encryption_key():
-    """Get or create encryption key"""
-    key = os.getenv('ENCRYPTION_KEY')
-    if not key:
-        try:
-            secrets = get_secrets()
-            key = secrets.get('ENCRYPTION_KEY')
-        except Exception as e:
-            log.error(f"Error getting encryption key from secrets: {e}")
-            key = None
-    return key
-
-# Initialize Fernet cipher
-cipher_suite = Fernet(get_encryption_key())
-
-def encrypt_sensitive_data(data):
-    """Encrypt sensitive data using Fernet"""
-    if not data:
-        return None
-    return cipher_suite.encrypt(str(data).encode()).decode()
-
-def decrypt_sensitive_data(encrypted_data):
-    """Decrypt sensitive data using Fernet"""
-    if not encrypted_data:
-        return None
-    try:
-        return cipher_suite.decrypt(encrypted_data.encode()).decode()
-    except Exception as e:
-        log.error(f"Error decrypting data: {e}")
-        return None
-
-def encrypt_password(password):
-    """Hash password using Argon2"""
-    if not password:
-        return None
-    return ph.hash(str(password))
-
-def verify_password(stored_hash, provided_password):
-    """Verify a password against its hash"""
-    try:
-        ph.verify(stored_hash, provided_password)
-        return True
-    except VerifyMismatchError:
-        return False
-
-def validate_email(email):
-    """Validate email format"""
-    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-    return bool(re.match(pattern, email))
-
-def validate_phone(phone):
-    """Validate phone number format"""
-    # Remove any non-digit characters
-    phone = re.sub(r'\D', '', phone)
-    # Check if the phone number has a valid length (adjust based on your requirements)
-    return len(phone) >= 10 and len(phone) <= 15
 
 # Initialize Argon2 password hasher
 ph = PasswordHasher(
@@ -106,9 +50,13 @@ ph = PasswordHasher(
     salt_len=16         # Length of the salt in bytes
 )
 
-def get_secrets():
+
+BUCKET_NAME = config.BUCKET
+REGION = config.REGION
+CURRENT_DIR = os.getcwd()
+
+def get_secrets(secret_name):
     """Load sensitive secrets from AWS Secrets Manager"""
-    secret_name = config.aws_secrets_group  # Replace with your secret name
     region_name = config.REGION
 
     # Create a Secrets Manager client
@@ -132,7 +80,8 @@ def get_secrets():
 
 
 # Load secrets
-secrets = get_secrets()
+secrets = get_secrets(config.aws_secrets_group)
+encryption_and_twilio_secrets = get_secrets(config.encryption_and_twilio_group)
 
 # Configure AWS s3
 s3 = boto3.client(
@@ -141,9 +90,97 @@ s3 = boto3.client(
     aws_secret_access_key=secrets['S3_ACCESS_KEY']
 )
 
-BUCKET_NAME = config.BUCKET
-REGION = config.REGION
-CURRENT_DIR = os.getcwd()
+
+# Initialize encryption key
+def get_encryption_key():
+    """Get or create encryption key"""
+    key = encryption_and_twilio_secrets['ENCRYPTION_KEY']
+    if not key:
+        #key = Fernet.generate_key()
+        raise Exception("No encryption key found in environment. Please set ENCRYPTION_KEY environment variable.")
+    return key
+
+# Initialize Fernet cipher
+cipher_suite = Fernet(get_encryption_key())
+
+def encrypt_sensitive_data(data):
+    """Encrypt sensitive data using Fernet"""
+    if not data:
+        return None
+    try:
+        return cipher_suite.encrypt(str(data).encode()).decode()
+    except Exception as e:
+        log.error(f"Error encrypting data: {e}")
+        return None
+
+def decrypt_sensitive_data(encrypted_data):
+    """Decrypt sensitive data using Fernet"""
+    if not encrypted_data:
+        return None
+    try:
+        return cipher_suite.decrypt(encrypted_data.encode()).decode()
+    except Exception as e:
+        log.error(f"Error decrypting data: {e}")
+        return None
+
+def encrypt_password(password):
+    """Hash password using Argon2"""
+    if not password:
+        return None
+    try:
+        return ph.hash(str(password))
+    except Exception as e:
+        log.error(f"Error hashing password: {e}")
+        return None
+
+def verify_password(stored_hash, provided_password):
+    """Verify a password against its hash"""
+    #log.info(f"stored hash: {stored_hash}, provided password: {provided_password}")
+    try:
+        if not stored_hash or not provided_password:
+            #log.warning(f"Missing stored hash or provided password: {stored_hash}, {provided_password}")
+            return False
+            
+        # Ensure the stored hash is a string
+        stored_hash = str(stored_hash)
+        
+        # Try to verify the password
+        ph.verify(stored_hash, provided_password)
+        return True
+    except VerifyMismatchError:
+        log.warning("Password verification failed - hash mismatch")
+        return False
+    except Exception as e:
+        log.error(f"Error verifying password: {str(e)}")
+        return False
+
+def validate_email(email):
+    """Validate email format"""
+    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    return bool(re.match(pattern, email))
+
+def validate_phone(phone):
+    """Validate phone number format"""
+    # Remove any non-digit characters
+    phone = re.sub(r'\D', '', phone)
+    # Check if the phone number has a valid length (adjust based on your requirements)
+    return len(phone) >= 10 and len(phone) <= 15
+
+def hash_email_sha256(email: str) -> str:
+    # Normalize email (optional but recommended)
+    normalized_email = email.strip().lower()
+    # Encode and hash
+    sha256_hash = hashlib.sha256(normalized_email.encode('utf-8')).hexdigest()
+    return sha256_hash
+
+# Initialize Argon2 password hasher
+ph = PasswordHasher(
+    time_cost=3,        # Number of iterations
+    memory_cost=65536,  # Memory usage in KiB
+    parallelism=4,      # Number of parallel threads
+    hash_len=32,        # Length of the hash in bytes
+    salt_len=16         # Length of the salt in bytes
+)
 
 # Setup your LLM (choose gpt-4o / gpt-3.5-turbo etc.)
 llm = ChatOpenAI(
@@ -322,12 +359,13 @@ def create():
     # Setup snowflake
     profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
     
-    insert_sql = f"INSERT INTO {config.PROFILE_TABLE} (UID, PASSWORD, NAME, PHONE, EMAIL, CITY, COUNTRY, PROFESSION, BIRTH_CITY, BIRTH_COUNTRY, DOB, TOB, GENDER, HOBBIES, LAT, LONG, IMAGES, CREATED, LOGIN) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+    insert_sql = f"INSERT INTO {config.PROFILE_TABLE} (UID, PASSWORD, NAME, PHONE, EMAIL, EMAIL_HASH, CITY, COUNTRY, PROFESSION, BIRTH_CITY, BIRTH_COUNTRY, DOB, TOB, GENDER, HOBBIES, LAT, LONG, IMAGES, CREATED, LOGIN) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
     uid = str(uuid4())
     
     # Encrypt sensitive data
     password = encrypt_password(json_data['password'])
     encrypted_email = encrypt_sensitive_data(email)
+    hashed_email = hash_email_sha256(email) # Need hashed email to search on email in snowflake
     encrypted_phone = encrypt_sensitive_data(phone)
     
     name = json_data['name'].lower() 
@@ -376,7 +414,7 @@ def create():
     else:
         hobbies = ''
 
-    profile_connect.cursor.execute(insert_sql, (uid, password, name, encrypted_phone, encrypted_email, city, country, profession, birth_city, birth_country, dob, tob, gender, hobbies, lat, long, images, timestamp, timestamp))
+    profile_connect.cursor.execute(insert_sql, (uid, password, name, encrypted_phone, encrypted_email, hashed_email, city, country, profession, birth_city, birth_country, dob, tob, gender, hobbies, lat, long, images, timestamp, timestamp))
     profile_connect.conn.commit()
     
     if gender == 'male':
@@ -488,13 +526,14 @@ def login():
         return jsonify({'error': 'Invalid email format'}), 400
 
     profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
-    select_sql = f"SELECT UID, PASSWORD, NOTIFICATIONS, EMAIL, PHONE FROM {config.PROFILE_TABLE} WHERE EMAIL = %s"
-    profile_connect.cursor.execute(select_sql, (encrypt_sensitive_data(email),))
-    results = profile_connect.cursor.fetchall()
+    select_sql = f"SELECT UID, PASSWORD, NOTIFICATIONS, EMAIL, PHONE FROM {config.PROFILE_TABLE} WHERE EMAIL_HASH = SHA2(%s, 256)"
 
-    if not results:
+    #log.info(f'Encrypted email: {type(encrypted_email)}, Value: {encrypted_email}')
+    profile_connect.cursor.execute(select_sql, (email,))
+    result = profile_connect.cursor.fetchone()
+
+    if not result:
         return jsonify({'LOGIN': 'UNSUCCESSFUL', 'ERROR': 'Email not found.'})
-    result = results[-1] if len(results) > 1 else results[0]
     
     if not verify_password(result[1], password):
         return jsonify({'LOGIN': 'UNSUCCESSFUL', 'ERROR': 'Password is Incorrect.'})
@@ -867,7 +906,7 @@ def action():
 
     return jsonify({'error' : 'OK', 'queue' : queue, 'user_align' : user_align, 'message' : message, "updated" : current_time})
 
-
+# Verify email both at signing up it should be True and while login it should be false
 # Before making the create:account call, UI should make verify:email call to ensure emails are unique 
 @app.route('/verify:email', methods=['POST'])
 def verify_email():
@@ -879,16 +918,16 @@ def verify_email():
     except:
         return jsonify({'error': 'Invalid JSON or missing email'}), 400
     
-    log.info(f"Username: {os.getenv('SNOWFLAKE_USERNAME')}, Account_id: {os.getenv('SNOWFLAKE_ACCOUNT_ID')}")
+    #log.info(f"Username: {os.getenv('SNOWFLAKE_USERNAME')}, Account_id: {os.getenv('SNOWFLAKE_ACCOUNT_ID')}")
 
-    # Encrypt the email using Argon2
-    encrypted_email = encrypt_sensitive_data(email)
+    # Decrypt email using the encryption key
+    decrypted_email = decrypt_sensitive_data(email)
 
     profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
 
     # Compare with encrypted email in database
     sql_fetch = f"SELECT UID FROM {config.PROFILE_TABLE} WHERE EMAIL=%s"
-    profile_connect.cursor.execute(sql_fetch, (encrypted_email,))
+    profile_connect.cursor.execute(sql_fetch, (decrypted_email,))
     results = profile_connect.cursor.fetchall()
 
     profile_connect.conn.commit()
@@ -1384,25 +1423,24 @@ def continue_preference():
 
 @app.route('/e2echat:token/<string:uid>', methods=['GET'])
 def generate_chat_token(uid):
-    """Generate a Twilio access token for chat"""
+    """Generate a Twilio Conversations access token"""
     try:
-        if uid is None:
+        if not uid:
             return jsonify({"error": "Missing 'uid' in url"}), 400
 
-        # Create an Access Token
         token = AccessToken(
-            os.getenv('TWILIO_ACCOUNT_SID'),
-            os.getenv('TWILIO_API_KEY'),
-            os.getenv('TWILIO_API_SECRET'),
+            encryption_and_twilio_secrets['TWILIO_ACCOUNT_SID'],
+            encryption_and_twilio_secrets['TWILIO_API_KEY'],
+            encryption_and_twilio_secrets['TWILIO_API_SECRET'],
             identity=uid
         )
 
-        # Create a Chat grant and add it to the token
         chat_grant = ChatGrant(service_sid=config.TWILIO_CHAT_SERVICE_SID)
         token.add_grant(chat_grant)
 
+
         return jsonify({
-            'token': token.to_jwt(),
+            'token': token.to_jwt(),  # decode to string
             'error': 'OK'
         })
 
@@ -1410,70 +1448,6 @@ def generate_chat_token(uid):
         log.error(f"Error generating chat token: {e}")
         return jsonify({'error': str(e)}), 500
 
-# @app.route('/e2echat:conversation', methods=['POST'])
-# def get_conversation():
-#     """Get or create a conversation between two users"""
-#     try:
-#         json_data = request.get_json()
-#         if not json_data:
-#             return jsonify({'error': 'Missing JSON data'}), 400
-
-#         uid1 = json_data.get('uid1')
-#         uid2 = json_data.get('uid2')
-        
-#         if not uid1 or not uid2:
-#             return jsonify({'error': 'Missing uid1 or uid2'}), 400
-
-#         # Initialize Twilio client
-#         client = Client(os.getenv('TWILIO_API_KEY'), os.getenv('TWILIO_API_SECRET'), os.getenv('TWILIO_ACCOUNT_SID'))
-
-#         # Check if conversation exists in matching table
-#         matching_connect = SnowConnect(config.MATCHING_TABLE_WAREHOUSE, config.MATCHING_TABLE_DATABASE, config.MATCHING_TABLE_SCHEMA)
-#         select_sql = f"""
-#             SELECT CONVERSATION_SID 
-#             FROM {config.MATCHING_TABLE} 
-#             WHERE (UID1 = %s AND UID2 = %s) OR (UID1 = %s AND UID2 = %s)
-#         """
-#         matching_connect.cursor.execute(select_sql, (uid1, uid2, uid2, uid1))
-#         result = matching_connect.cursor.fetchone()
-
-#         if result and result[0]:
-#             # Conversation exists, return the SID
-#             conversation_sid = result[0]
-#         else:
-#             # Create new conversation
-#             conversation = client.conversations.conversations.create(
-#                 friendly_name=f"Chat between {uid1} and {uid2}"
-#             )
-#             conversation_sid = conversation.sid
-
-#             # Add participants
-#             client.conversations.conversations(conversation_sid).participants.create(
-#                 identity=uid1
-#             )
-#             client.conversations.conversations(conversation_sid).participants.create(
-#                 identity=uid2
-#             )
-
-#             # Store conversation SID in matching table
-#             update_sql = f"""
-#                 UPDATE {config.MATCHING_TABLE} 
-#                 SET CONVERSATION_SID = %s 
-#                 WHERE (UID1 = %s AND UID2 = %s) OR (UID1 = %s AND UID2 = %s)
-#             """
-#             matching_connect.cursor.execute(update_sql, (conversation_sid, uid1, uid2, uid2, uid1))
-#             matching_connect.conn.commit()
-
-#         matching_connect.close()
-
-#         return jsonify({
-#             'conversation_sid': conversation_sid,
-#             'error': 'OK'
-#         })
-
-#     except Exception as e:
-#         log.error(f"Error managing conversation: {e}")
-#         return jsonify({'error': str(e)}), 500
     
 def safely_add_participant(client, conversation_sid, identity):
     try:
@@ -1483,6 +1457,7 @@ def safely_add_participant(client, conversation_sid, identity):
             log.warning(f"Participant {identity} already exists in conversation {conversation_sid}")
         else:
             raise
+
 
 @app.route('/e2echat:conversation', methods=['POST'])
 def get_conversation():
@@ -1499,9 +1474,9 @@ def get_conversation():
 
         # Init Twilio client
         client = Client(
-            os.getenv('TWILIO_API_KEY'),
-            os.getenv('TWILIO_API_SECRET'),
-            os.getenv('TWILIO_ACCOUNT_SID')
+            encryption_and_twilio_secrets['TWILIO_API_KEY'],
+            encryption_and_twilio_secrets['TWILIO_API_SECRET'],
+            encryption_and_twilio_secrets['TWILIO_ACCOUNT_SID']
         )
 
         # Connect to Snowflake
@@ -1525,15 +1500,16 @@ def get_conversation():
         else:
             # Create new conversation
             conversation = client.conversations.v1.conversations.create(
-                friendly_name=f"Chat between {uid1} and {uid2}"
+                friendly_name=config.TWILIO_SERVICE_NAME
             )
             conversation_sid = conversation.sid
 
-            # Add participants if they’re not already in the conversation
-            for uid in [uid1, uid2]:
-                safely_add_participant(client, conversation_sid, uid1)
-                safely_add_participant(client, conversation_sid, uid2)
+            # Add participants if they're not already in the conversation
 
+            safely_add_participant(client, conversation_sid, uid1)
+            safely_add_participant(client, conversation_sid, uid2)
+
+            log.info(f'Conversation SID: {conversation_sid}')
             # Store conversation SID in your DB
             update_sql = f"""
                 UPDATE {config.MATCHING_TABLE} 

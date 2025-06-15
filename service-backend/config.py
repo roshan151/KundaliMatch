@@ -27,6 +27,7 @@ class Config:
     BUCKET = 'match-bucket-2025'
     REGION = 'us-east-2'
     aws_secrets_group = 'ALIGNED_SECRET_ACCESS'
+    encryption_and_twilio_group = 'ENCRYPTION_AND_TWILIO_ACCESS'
 
     # Service Configuration
     KUNDALI_SERVICE_URL = "http://kundali-service"
@@ -35,6 +36,7 @@ class Config:
     OPENAI_MODEL_NAME = "gpt-4o-mini"
 
     # Twilio Configuration
-    TWILIO_CHAT_SERVICE_SID = 'MG036a30e46a73004e8c82cb59d1b9f520' 
+    TWILIO_CHAT_SERVICE_SID = 'ISf6aecbd6aae748bfbb148db9efc45ce5'
+    TWILIO_SERVICE_NAME = 'aligned-conversations' 
 
 config = Config()
