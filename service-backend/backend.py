@@ -495,7 +495,7 @@ def sort_notifications(notifications):
     for item in notifications:
         if "updated" in item and "message" in item:
             try:
-                updated_time.append(datetime.strptime(item["updated"]))
+                updated_time.append(item["updated"])
                 messages.append(item["message"])
             except Exception as e:
                 log.warning(f'Unable to process notification: {item}, Error: {e}')
@@ -619,6 +619,7 @@ def fetch_queue(uid, queue_requested):
         rec_idx = 1 - usr_idx
         usr_align, rec_align = (a1, a2) if usr_idx == 0 else (a2, a1)
         usr_skip, rec_skip = (s1, s2) if usr_idx == 0 else (s2, s1)
+        usr_block, rec_block = (b1, b2) if usr_idx == 0 else (b2, b1)
 
         if usr_skip or rec_skip:
             continue
@@ -640,7 +641,9 @@ def fetch_queue(uid, queue_requested):
             'name': name,
             'score': score,
             'chat_enabled': usr_align and rec_align,
-            'user_align': usr_align
+            'user_align': usr_align,
+            'blocked_by_match' : rec_block, 
+            'blocked_by_user' : usr_block
         })
 
     matching_connect.conn.commit()
@@ -831,7 +834,7 @@ def action():
         uid = json_data.get('uid')
         rec_uid = json_data.get('recommendation_uid')
         action = json_data.get('action')
-        assert action in ['align', 'skip']
+        assert action in ['align', 'skip', 'block']
     except:
         return jsonify({'error': 'Invalid JSON or missing uid/recommendation_uid/action'}), 400
     
@@ -866,15 +869,18 @@ def action():
         log.info(f'No match for usr uid {uid}, {result[0]}, {result[1]}\n{result}')
 
     recommended_user_name = result[10+rec_idx]
+    user_name = result[10+primary]
+    user_align = False
+    user_block = False
 
+    message_recommender = None
+    message = None
     if action == 'skip':
 
         delete_sql = f"DELETE FROM {config.MATCHING_TABLE} WHERE UID1 = '{result[0]}' AND UID2 ='{result[1]}'"
         matching_connect.cursor.execute(delete_sql)
         queue = 'None'
         message = f'{recommended_user_name} will not be recommended to you.'
-
-        user_align = False
 
     # Right now we do not provide option to retract your response
     elif action == 'align':
@@ -888,13 +894,29 @@ def action():
 
         if result[4+rec_idx] == True:
             queue = 'MATCHED'
-            message = f'You have been matched with the {recommended_user_name}.'
+            message = f'You have been matched with {recommended_user_name}.'
+            message_recommender = f'{user_name} has accepted your align request.'
 
         else:
             queue = 'AWAITING'
             message = f'Align request has been sent to {recommended_user_name}'
+            message_recommender = f'You recieved an align request from {user_name}'
 
         user_align = True
+
+    elif action == 'block':
+
+        block_col = f'BLOCK{primary+1}'
+
+        if block_col not in valid_cols:
+            log.warning(f'{block_col} not a valid column')
+
+        update_sql = f"UPDATE {config.MATCHING_TABLE} SET {block_col} = {True}, UPDATED = '{current_time}' WHERE UID1 = '{result[0]}' AND UID2 = '{result[1]}'"
+        matching_connect.cursor.execute(update_sql)
+
+        queue = 'MATCHED'
+        message = f'{recommended_user_name} has been Blocked.'
+        user_block = True
 
     matching_connect.conn.commit()
     matching_connect.close()
@@ -902,9 +924,13 @@ def action():
     # Creates and destroys event loop
     #asyncio.run(put_yaml_to_s3(uid, [{'message' : message, 'updated' : current_time}]))
 
-    threading.Thread(target=run_async_task, args=(update_notifications_or_chats(uid, [{'message' : message, 'updated' : current_time}], 'notifications'),)).start()
+    if message is not None:
+        threading.Thread(target=run_async_task, args=(update_notifications_or_chats(uid, [{'message' : message, 'updated' : current_time}], 'notifications'),)).start()
 
-    return jsonify({'error' : 'OK', 'queue' : queue, 'user_align' : user_align, 'message' : message, "updated" : current_time})
+    if message_recommender is not None:
+        threading.Thread(target=run_async_task, args=(update_notifications_or_chats(rec_uid, [{'message' : message_recommender, 'updated' : current_time}], 'notifications'),)).start()
+
+    return jsonify({'error' : 'OK', 'queue' : queue, 'user_align' : user_align, 'message' : message, "updated" : current_time, 'user_block' : user_block})
 
 # Verify email both at signing up it should be True and while login it should be false
 # Before making the create:account call, UI should make verify:email call to ensure emails are unique 
