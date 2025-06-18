@@ -23,12 +23,24 @@ class Config:
     SNOWFLAKE_USERNAME = 'TeamKreative'
     SNOWFLAKE_ACCOUNT_ID = 'jkfvgpq-bk60648'
 
+    # AWS RDS Configuration
+    # RDS_DB_NAME='AlignedDB'
+    # RDS_USERNAME='postgres'
+    # RDS_ENDPOINT='aligned-db.cluster-cho2wa64m2vm.us-east-2.rds.amazonaws.com'
+    # RDS_PORT='5432'
+
+
     # AWS Configuration
     BUCKET = 'match-bucket-2025'
     REGION = 'us-east-2'
     aws_secrets_group = 'ALIGNED_SECRET_ACCESS'
     encryption_and_twilio_group = 'ENCRYPTION_AND_TWILIO_ACCESS'
+    rds_secrets_group = 'AlignedDB-RDS-Secrets'
 
+    # RDS TABLE NAMES
+    RDS_PROFILE_DB='PROFILE_INFO_TABLE'
+    RDS_MATCHING_TABLE='MATCH_DETAILS_TABLE'
+    
     # Service Configuration
     KUNDALI_SERVICE_URL = "http://kundali-service"
     KUNDALI_SERVICE_PORT = "8000"

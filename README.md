@@ -86,3 +86,11 @@ NOTE: ON ec2 PRECEED COMMANDS WITH SUDO
 ## Encryption + Security June 14th
 Run dockerfile with aws credentials (.env is removed) - credentials + secrets manager
 docker run --rm -p 8080:8080 -v ~/.aws:/root/.aws:ro -e AWS_DEFAULT_REGION=us-east-2
+
+# Setting up AWS RDS
+Config - postgresql, self managed, attached to match ec2, attached ec2's security groups to rds
+DB - aligned-db, Password
+
+Inside EC2:
+sudo dnf install postgresql15 -y
+Instance Endpoint: aligned-db-instance-1.cho2wa64m2vm.us-east-2.rds.amazonaws.com

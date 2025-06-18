@@ -24,7 +24,7 @@ from urllib.parse import urlparse
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 from cryptography.fernet import Fernet
-
+from rds_utils import RDS_Connect
 # from dotenv import load_dotenv
 # load_dotenv()
 
@@ -871,7 +871,7 @@ def action():
     recommended_user_name = result[10+rec_idx]
     user_name = result[10+primary]
     user_align = False
-    user_block = False
+    user_block = result[8+primary]
 
     message_recommender = None
     message = None
@@ -905,18 +905,23 @@ def action():
         user_align = True
 
     elif action == 'block':
+        
+        if user_block == True:
+            user_block = False
+            message = f'{recommended_user_name} has been Unblocked.'
+        else:
+            user_block = True
+            message = f'{recommended_user_name} has been Blocked.'
 
         block_col = f'BLOCK{primary+1}'
 
         if block_col not in valid_cols:
             log.warning(f'{block_col} not a valid column')
 
-        update_sql = f"UPDATE {config.MATCHING_TABLE} SET {block_col} = {True}, UPDATED = '{current_time}' WHERE UID1 = '{result[0]}' AND UID2 = '{result[1]}'"
+        update_sql = f"UPDATE {config.MATCHING_TABLE} SET {block_col} = {user_block}, UPDATED = '{current_time}' WHERE UID1 = '{result[0]}' AND UID2 = '{result[1]}'"
         matching_connect.cursor.execute(update_sql)
 
         queue = 'MATCHED'
-        message = f'{recommended_user_name} has been Blocked.'
-        user_block = True
 
     matching_connect.conn.commit()
     matching_connect.close()
