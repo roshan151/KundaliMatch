@@ -178,8 +178,67 @@
     "tob": "02:30",
     "gender": "male",
     "hobbies": ["fitness", "reading", "traveling", "photography", "music", "biking"]
+  },
+  {
+    "name": "Aishwarya Rai",
+    "phone": "9000000003",
+    "password": "missWorld@94",
+    "profession": "Actress",
+    "birth_city": "Mangalore",
+    "birth_country": "India",
+    "email": "aishwarya.rai@example.com",
+    "city": "Mumbai",
+    "country": "India",
+    "dob": "1973-11-01",
+    "tob": "04:05",
+    "gender": "female",
+    "hobbies": ["classical dancing", "reading", "charity work", "traveling", "fashion"]
+  },
+  {
+    "name": "Abhishek Bachchan",
+    "phone": "9000000004",
+    "password": "juniorB@76",
+    "profession": "Actor",
+    "birth_city": "Mumbai",
+    "birth_country": "India",
+    "email": "abhishek.bachchan@example.com",
+    "city": "Mumbai",
+    "country": "India",
+    "dob": "1976-02-05",
+    "tob": "12:10",
+    "gender": "male",
+    "hobbies": ["sports", "music", "reading", "traveling", "watching football", "photography"]
+  },
+  {
+    "name": "Salman Khan",
+    "phone": "9000000005",
+    "password": "bhaijaan@65",
+    "profession": "Actor",
+    "birth_city": "Indore",
+    "birth_country": "India",
+    "email": "salman.khan@example.com",
+    "city": "Mumbai",
+    "country": "India",
+    "dob": "1965-12-27",
+    "tob": "14:30",
+    "gender": "male",
+    "hobbies": ["painting", "cycling", "gym", "acting", "charity work", "swimming"]
+  },
+  {
+    "name": "Vivek Oberoi",
+    "phone": "9000000006",
+    "password": "vivekStar@76",
+    "profession": "Actor",
+    "birth_city": "Hyderabad",
+    "birth_country": "India",
+    "email": "vivek.oberoi@example.com",
+    "city": "Mumbai",
+    "country": "India",
+    "dob": "1976-09-03",
+    "tob": "10:45",
+    "gender": "male",
+    "hobbies": ["writing", "reading", "philanthropy", "traveling", "adventure sports"]
   }
-  
   
 ] 
   

@@ -1,3 +1,4 @@
+import os
 import boto3
 import json
 import psycopg2
@@ -33,13 +34,22 @@ def get_secrets():
 
 # Load secrets
 secrets = get_secrets()
+env = os.getenv('DEPLOYMENT_ENV')
 
+if env == 'local':
+    HOST = 'host.docker.internal'
+elif env == 'develop':
+    HOST = secrets['host']
+else:
+    log.error(f'Expecting deployment environment : [develop, local]')
+
+log.info(f'Setting RDS host for: {env}')
 class RDS_Connect:
 
     def __init__(self, db_name): 
         try:
             self.conn = psycopg2.connect(
-                host='localhost',#secrets['host'],
+                host=HOST,
                 database=db_name,
                 user=secrets['engine'],
                 password=secrets['password'],

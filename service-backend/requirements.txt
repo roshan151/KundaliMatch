@@ -12,3 +12,5 @@ langchain_community
 argon2-cffi
 twilio
 crewai
+pandas
+psycopg2-binary

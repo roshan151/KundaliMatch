@@ -8,6 +8,7 @@ services:
     depends_on:
       - kundali-service-amd64
     environment:
+      DEPLOYMENT_ENV: develop
       AWS_DEFAULT_REGION: us-east-2
     volumes:
       - ~/.aws:/root/.aws:ro

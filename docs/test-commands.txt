@@ -50,6 +50,8 @@ curl -X GET http://localhost:8080/e2echat:token/7eb3892a-de57-4841-84eb-d1a61fb2
 curl -X POST http://localhost:8080/e2echat:conversation \
   -H "Content-Type: application/json" \
   -d '{"uid1" : "84fb3928-e856-4233-b095-ddbd1ff73c4e", "uid2" : "84fb3928-e856-4233-b095-ddbd1ff73c4e"}'
+
+curl -X POST http://localhost:8080/account:update -F 'metadata={"uid" :"8521511a-bb51-4e75-9c1e-bb0b10298bd0", "password" : "sobhitaD90!"}'
 #######################################################################################################################################################################################
 
 Backend version 2:
