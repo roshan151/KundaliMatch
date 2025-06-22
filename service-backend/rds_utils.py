@@ -34,12 +34,14 @@ def get_secrets():
 
 # Load secrets
 secrets = get_secrets()
-env = os.getenv('DEPLOYMENT_ENV')
 
+env = os.getenv('DEPLOYMENT_ENV')
+log.info(f'Getting RDS host for: {env}')
 if env == 'local':
     HOST = 'host.docker.internal'
 elif env == 'develop':
     HOST = secrets['host']
+    log.info(f'HOST: {HOST}')
 else:
     log.error(f'Expecting deployment environment : [develop, local]')
 

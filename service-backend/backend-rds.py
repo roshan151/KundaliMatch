@@ -33,7 +33,7 @@ from cryptography.fernet import Fernet
 
 # Custom components
 from config import config
-from snowflake_utils import SnowConnect
+from rds_utils import RDS_Connect
 
 log.basicConfig(
     format='%(levelname)s [%(filename)s:%(lineno)d] %(message)s',
@@ -355,10 +355,16 @@ def create():
     profile_images = request.files.getlist("images")
 
     log.info(f'Profile Images: {len(profile_images)}')
-    # Setup snowflake
-    profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
+    # Setup RDS connection
+    profile_connect = RDS_Connect(config.RDS_DB_NAME)
     
-    insert_sql = f"INSERT INTO {config.PROFILE_TABLE} (UID, PASSWORD, NAME, PHONE, EMAIL, EMAIL_HASH, CITY, COUNTRY, PROFESSION, BIRTH_CITY, BIRTH_COUNTRY, DOB, TOB, GENDER, HOBBIES, LAT, LONG, IMAGES, CREATED, LOGIN) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+    # Define column names for RDS insert
+    column_names = ['UID', 'PASSWORD', 'NAME', 'PHONE', 'EMAIL', 'EMAIL_HASH', 'CITY', 'COUNTRY', 'PROFESSION', 'BIRTH_CITY', 'BIRTH_COUNTRY', 'DOB', 'TOB', 'GENDER', 'HOBBIES', 'LAT', 'LONG', 'IMAGES', 'CREATED', 'LOGIN']
+    
+    # Create INSERT statement using double quotes for column names
+    columns_str = ', '.join([f'"{col}"' for col in column_names])
+    placeholders = ', '.join(['%s'] * len(column_names))
+    insert_sql = f'INSERT INTO "{config.RDS_PROFILE_TABLE}" ({columns_str}) VALUES ({placeholders})'
     uid = str(uuid4())
     
     # Encrypt sensitive data
@@ -422,16 +428,13 @@ def create():
         fetch = 'male'
 
         # Select self user data using RDS
-
-    select_self = F"SELECT UID, DOB, TOB, LAT, LONG, HOBBIES FROM {config.PROFILE_TABLE} WHERE UID = '{uid}'"
-    profile_connect.cursor.execute(select_self)
-
-    # Fetch all results
-    results = profile_connect.cursor.fetchall()
-    self_result = results[-1]
+    select_self = f'SELECT "UID", "DOB", "TOB", "LAT", "LONG", "HOBBIES" FROM "{config.RDS_PROFILE_TABLE}" WHERE "UID" = %s'
+    profile_connect.cursor.execute(select_self, (uid,))
+    self_result = profile_connect.cursor.fetchone()
     
-    select_sql = f"SELECT UID, DOB, TOB, LAT, LONG, HOBBIES, NAME FROM {config.PROFILE_TABLE} WHERE GENDER = '{fetch}'"
-    profile_connect.cursor.execute(select_sql)
+    # Select potential matches using RDS
+    select_sql = f'SELECT "UID", "DOB", "TOB", "LAT", "LONG", "HOBBIES", "NAME" FROM "{config.RDS_PROFILE_TABLE}" WHERE "GENDER" = %s'
+    profile_connect.cursor.execute(select_sql, (fetch,))
     results = profile_connect.cursor.fetchall()
     profile_connect.close()
 
@@ -454,13 +457,22 @@ def create():
 
     log.info(f'Recommendations: {recommendations}')
 
-    matching_connect  = SnowConnect(config.MATCHING_TABLE_WAREHOUSE, config.MATCHING_TABLE_DATABASE, config.MATCHING_TABLE_SCHEMA)
+    # Setup RDS connection for matching table
+    matching_connect = RDS_Connect(config.RDS_DB_NAME)
+    
     # Post recommendations to matching table
-
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-    insert_sql_matching = f"INSERT INTO {config.MATCHING_TABLE} (UID1, NAME1, UID2, NAME2, SCORE, CREATED, UPDATED, ALIGN1, ALIGN2, SKIP1, SKIP2, BLOCK1, BLOCK2) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+    
+    # Define column names for matching table insert
+    matching_columns = ['UID1', 'NAME1', 'UID2', 'NAME2', 'SCORE', 'CREATED', 'UPDATED', 'ALIGN1', 'ALIGN2', 'SKIP1', 'SKIP2', 'BLOCK1', 'BLOCK2']
+    
+    # Create INSERT statement for matching table
+    matching_columns_str = ', '.join([f'"{col}"' for col in matching_columns])
+    matching_placeholders = ', '.join(['%s'] * len(matching_columns))
+    insert_sql_matching = f'INSERT INTO "{config.RDS_MATCHING_TABLE}" ({matching_columns_str}) VALUES ({matching_placeholders})'
+    
     for item in recommendations:
-        matching_connect.cursor.execute(insert_sql_matching, (uid, name, item[0], str(item[2]), str(item[1]), timestamp, timestamp, False, False, False, False, False, False ) )
+        matching_connect.cursor.execute(insert_sql_matching, (uid, name, item[0], str(item[2]), str(item[1]), timestamp, timestamp, False, False, False, False, False, False))
 
     matching_connect.conn.commit()
     matching_connect.close()
@@ -525,15 +537,15 @@ def login():
         return jsonify({'error': 'Invalid email format'}), 400
 
     # Setup RDS connection
-    profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
-
+    profile_connect = RDS_Connect(config.RDS_DB_NAME)
     
     # Use SHA256 hash for email lookup in RDS (PostgreSQL uses different hash function)
-    #hashed_email = hash_email_sha256(email)
-    select_sql = f"SELECT UID, PASSWORD, NOTIFICATIONS, EMAIL, PHONE, LOGIN FROM {config.PROFILE_TABLE} WHERE EMAIL_HASH = SHA2(%s, 256)"
-
-     
-    profile_connect.cursor.execute(select_sql, (email,))
+    hashed_email = hash_email_sha256(email)
+    select_sql = sql.SQL('SELECT "UID", "PASSWORD", "NOTIFICATIONS", "EMAIL", "PHONE", "LOGIN" FROM {} WHERE "EMAIL_HASH" = %s').format(
+        sql.Identifier(config.RDS_PROFILE_TABLE)
+    )
+    
+    profile_connect.cursor.execute(select_sql, (hashed_email,))
     result = profile_connect.cursor.fetchone()
 
     if not result:
@@ -546,8 +558,8 @@ def login():
     current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
     
     # Update login time using RDS
-    update_sql = f"UPDATE {config.PROFILE_TABLE} SET LOGIN = '{current_time}' WHERE UID = '{uid}'"
-    profile_connect.cursor.execute(update_sql)
+    update_sql = f'UPDATE "{config.RDS_PROFILE_TABLE}" SET "LOGIN" = %s WHERE "UID" = %s'
+    profile_connect.cursor.execute(update_sql, (current_time, uid))
     profile_connect.conn.commit()
     profile_connect.close()
 
@@ -610,9 +622,10 @@ def login():
 @app.route('/get:user/<uid>', methods=['GET'])
 def get_user(uid):
     # Setup RDS connection
-    profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
-    select_sql = f"SELECT NAME, DOB, CITY, COUNTRY, IMAGES, HOBBIES, PROFESSION, GENDER, NOTIFICATIONS, EMAIL, PHONE FROM {config.PROFILE_TABLE} WHERE UID = '{uid}'"
-    profile_connect.cursor.execute(select_sql)
+    profile_connect = RDS_Connect(config.RDS_DB_NAME)
+    
+    select_sql = f'SELECT "NAME", "DOB", "CITY", "COUNTRY", "IMAGES", "HOBBIES", "PROFESSION", "GENDER", "NOTIFICATIONS", "EMAIL", "PHONE" FROM "{config.RDS_PROFILE_TABLE}" WHERE "UID" = %s'
+    profile_connect.cursor.execute(select_sql, (uid,))
     result = profile_connect.cursor.fetchone()
 
     if not result:
@@ -640,10 +653,13 @@ def get_user(uid):
     return jsonify(user_data)
 
 def fetch_queue(uid, queue_requested):
-    matching_connect = SnowConnect(config.MATCHING_TABLE_WAREHOUSE, config.MATCHING_TABLE_DATABASE, config.MATCHING_TABLE_SCHEMA)
-    sql = f"SELECT UID1, UID2, SCORE, UPDATED, ALIGN1, ALIGN2, SKIP1, SKIP2, BLOCK1, BLOCK2, NAME1, NAME2 FROM {config.MATCHING_TABLE} WHERE UID1 = '{uid}' OR UID2 = '{uid}'"
+    # Setup RDS connection for matching table
+    matching_connect = RDS_Connect(config.RDS_DB_NAME)
+    
+    select_sql = f'SELECT "UID1", "UID2", "SCORE", "UPDATED", "ALIGN1", "ALIGN2", "SKIP1", "SKIP2", "BLOCK1", "BLOCK2", "NAME1", "NAME2" FROM "{config.RDS_MATCHING_TABLE}" WHERE "UID1" = %s OR "UID2" = %s'
+    
     cursor = matching_connect.conn.cursor()
-    cursor.execute(sql)
+    cursor.execute(select_sql, (uid, uid))
     results = cursor.fetchall()
     cursor.close()
 
@@ -744,12 +760,13 @@ def get_profile(uid):
         return jsonify({"error": "Missing 'uid' in url"}), 400
 
     # Setup RDS connection
-    profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
+    profile_connect = RDS_Connect(config.RDS_DB_NAME)
 
     columns = ['UID', 'NAME', 'DOB', 'CITY', 'COUNTRY', 'IMAGES', 'HOBBIES', 'PROFESSION', 'GENDER']
-    columns_string = ', '.join(columns)
-    select_sql = f"SELECT {columns_string} FROM {config.PROFILE_TABLE} WHERE UID= '{uid}'"
-    profile_connect.cursor.execute(select_sql)
+    
+    columns_str = ', '.join([f'"{col}"' for col in columns])
+    select_sql = f'SELECT {columns_str} FROM "{config.RDS_PROFILE_TABLE}" WHERE "UID" = %s'
+    profile_connect.cursor.execute(select_sql, (uid,))
 
     results = profile_connect.cursor.fetchall()
 
@@ -793,9 +810,11 @@ async def update_notifications_or_chats(uid, new_notifications_or_chats, column)
         log.warning(f"Unsupported datatype/snowflake column: {column}. Supported datatypes are ['notifications', 'initiate_chats', 'preference_chats']")
         return None
     
-    profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
-    select_sql = f"SELECT UID, CREATED, PASSWORD, LOGIN, {col} FROM {config.PROFILE_TABLE} WHERE UID = '{uid}'"
-    profile_connect.cursor.execute(select_sql)
+    # Setup RDS connection
+    profile_connect = RDS_Connect(config.RDS_DB_NAME)
+    
+    select_sql = f'SELECT "UID", "CREATED", "PASSWORD", "LOGIN", "{col}" FROM "{config.RDS_PROFILE_TABLE}" WHERE "UID" = %s'
+    profile_connect.cursor.execute(select_sql, (uid,))
 
     results = profile_connect.cursor.fetchall()
     
@@ -851,9 +870,9 @@ async def update_notifications_or_chats(uid, new_notifications_or_chats, column)
 
             path = upload_file_to_s3(filepath, filename)
 
-            update_sql = f"UPDATE {config.PROFILE_TABLE} SET {col} = '{str(path)}' WHERE UID = '{uid}'"
+            update_sql = f'UPDATE "{config.RDS_PROFILE_TABLE}" SET "{col}" = %s WHERE "UID" = %s'
             
-            profile_connect.cursor.execute(update_sql)
+            profile_connect.cursor.execute(update_sql, (str(path), uid))
             profile_connect.conn.commit()
 
         else:
@@ -885,10 +904,11 @@ def action():
 
     valid_cols = ['UID1', 'UID2', 'SCORE', 'UPDATED', 'ALIGN1', 'ALIGN2', 'SKIP1', 'SKIP2', 'BLOCK1', 'BLOCK2', 'NAME1', 'NAME2']
     
-    matching_connect = SnowConnect(config.MATCHING_TABLE_WAREHOUSE, config.MATCHING_TABLE_DATABASE, config.MATCHING_TABLE_SCHEMA)
+    # Setup RDS connection for matching table
+    matching_connect = RDS_Connect(config.RDS_DB_NAME)
     
-    sql_fetch = f"SELECT UID1, UID2, SCORE, UPDATED, ALIGN1, ALIGN2, SKIP1, SKIP2, BLOCK1, BLOCK2, NAME1, NAME2 FROM {config.MATCHING_TABLE} WHERE (UID1 = '{uid}' AND UID2 = '{rec_uid}') OR (UID1 = '{rec_uid}' AND UID2= '{uid}')"
-    matching_connect.cursor.execute(sql_fetch)
+    sql_fetch = f'SELECT "UID1", "UID2", "SCORE", "UPDATED", "ALIGN1", "ALIGN2", "SKIP1", "SKIP2", "BLOCK1", "BLOCK2", "NAME1", "NAME2" FROM "{config.RDS_MATCHING_TABLE}" WHERE ("UID1" = %s AND "UID2" = %s) OR ("UID1" = %s AND "UID2" = %s)'
+    matching_connect.cursor.execute(sql_fetch, (uid, rec_uid, rec_uid, uid))
     results = matching_connect.cursor.fetchall()
     
     if len(results)>1:
@@ -920,8 +940,9 @@ def action():
     message_recommender = None
     message = None
     if action == 'skip':
-        delete_sql = f"DELETE FROM {config.MATCHING_TABLE} WHERE UID1 = '{result[0]}' AND UID2 ='{result[1]}'"
-        matching_connect.cursor.execute(delete_sql)
+
+        delete_sql = f'DELETE FROM "{config.RDS_MATCHING_TABLE}" WHERE "UID1" = %s AND "UID2" = %s'
+        matching_connect.cursor.execute(delete_sql, (result[0], result[1]))
         queue = 'None'
         message = f'{recommended_user_name} will not be recommended to you.'
 
@@ -932,9 +953,8 @@ def action():
         if align_col not in valid_cols:
             log.warning(f'{align_col} not a valid column')
 
-
-        update_sql = f"UPDATE {config.MATCHING_TABLE} SET {align_col} = {True}, UPDATED = '{current_time}' WHERE UID1 = '{result[0]}' AND UID2 = '{result[1]}'"
-        matching_connect.cursor.execute(update_sql)
+        update_sql = f'UPDATE "{config.RDS_MATCHING_TABLE}" SET "{align_col}" = %s, "UPDATED" = %s WHERE "UID1" = %s AND "UID2" = %s'
+        matching_connect.cursor.execute(update_sql, (True, current_time, result[0], result[1]))
 
         if result[4+rec_idx] == True:
             queue = 'MATCHED'
@@ -962,8 +982,8 @@ def action():
         if block_col not in valid_cols:
             log.warning(f'{block_col} not a valid column')
 
-        update_sql = f"UPDATE {config.MATCHING_TABLE} SET {block_col} = {True}, UPDATED = '{current_time}' WHERE UID1 = '{result[0]}' AND UID2 = '{result[1]}'"
-        matching_connect.cursor.execute(update_sql)
+        update_sql = f'UPDATE "{config.RDS_MATCHING_TABLE}" SET "{block_col}" = %s, "UPDATED" = %s WHERE "UID1" = %s AND "UID2" = %s'
+        matching_connect.cursor.execute(update_sql, (user_block, current_time, result[0], result[1]))
 
         queue = 'MATCHED'
 
@@ -999,10 +1019,10 @@ def verify_email():
     hashed_email = hash_email_sha256(email)
 
     # Setup RDS connection
-    profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
+    profile_connect = RDS_Connect(config.RDS_DB_NAME)
 
-    # Compare with encrypted email in database
-    sql_fetch = f"SELECT UID FROM {config.PROFILE_TABLE} WHERE EMAIL=%s"
+    # Compare with hashed email in database
+    sql_fetch = f'SELECT "UID" FROM "{config.RDS_PROFILE_TABLE}" WHERE "EMAIL_HASH" = %s'
     profile_connect.cursor.execute(sql_fetch, (hashed_email,))
     results = profile_connect.cursor.fetchall()
 
@@ -1085,15 +1105,22 @@ def update_account():
     if not fields:
         return jsonify({'error': 'No valid fields provided for update'}), 400
 
-    # Build SQL UPDATE dynamically
-    set_clause = ', '.join([f"{key} = %s" for key in fields.keys()])
-    values = list(fields.values())
-    values.append(uid)  # for WHERE clause
-
-    update_sql = f"UPDATE {config.PROFILE_TABLE} SET {set_clause} WHERE UID = %s"
-
+    # Build SQL UPDATE dynamically for RDS
     try:
-        profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
+        # Setup RDS connection
+        profile_connect = RDS_Connect(config.RDS_DB_NAME)
+        
+        # Build update statement using double quotes for column identifiers
+        set_clauses = []
+        values = []
+        for key, value in fields.items():
+            set_clauses.append(f'"{key}" = %s')
+            values.append(value)
+        
+        values.append(uid)  # for WHERE clause
+        
+        update_sql = f'UPDATE "{config.RDS_PROFILE_TABLE}" SET {", ".join(set_clauses)} WHERE "UID" = %s'
+        
         profile_connect.cursor.execute(update_sql, values)
         profile_connect.conn.commit()
     except Exception as e:
@@ -1113,17 +1140,17 @@ def update_account():
     if update_score:
         log.info(f"Recalculating matching score for UID: {uid} due to updates.")
 
-        # Re-fetch updated user profile
-        profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
-        profile_connect.cursor.execute(f"SELECT UID, DOB, TOB, LAT, LONG, HOBBIES, GENDER, NAME FROM {config.PROFILE_TABLE} WHERE UID = %s", (uid,))
+        # Re-fetch updated user profile using RDS
+        profile_select_sql = f'SELECT "UID", "DOB", "TOB", "LAT", "LONG", "HOBBIES", "GENDER", "NAME" FROM "{config.RDS_PROFILE_TABLE}" WHERE "UID" = %s'
+        profile_connect.cursor.execute(profile_select_sql, (uid,))
         current_user = profile_connect.cursor.fetchone()
         
         if current_user:
             uid, dob, tob, lat, long, hobbies, gender, user_name = current_user
 
-            # Fetch all matches where this user is involved
-            matching_connect = SnowConnect(config.MATCHING_TABLE_WAREHOUSE, config.MATCHING_TABLE_DATABASE, config.MATCHING_TABLE_SCHEMA)
-            match_query = f"SELECT UID1, UID2 FROM {config.MATCHING_TABLE} WHERE UID1 = %s OR UID2 = %s"
+            # Fetch all matches where this user is involved using RDS
+            matching_connect = RDS_Connect(config.RDS_DB_NAME)
+            match_query = f'SELECT "UID1", "UID2" FROM "{config.RDS_MATCHING_TABLE}" WHERE "UID1" = %s OR "UID2" = %s'
             matching_connect.cursor.execute(match_query, (uid, uid))
             match_rows = matching_connect.cursor.fetchall()
 
@@ -1146,8 +1173,8 @@ def update_account():
                     new_scores.append(new_score)
                     recommended_names.append(other_user[-1])
 
-                    # Update score in matching table
-                    update_match_sql = f"UPDATE {config.MATCHING_TABLE} SET SCORE = %s WHERE (UID1 = %s AND UID2 = %s) OR (UID1 = %s AND UID2 = %s)"
+                    # Update score in matching table using RDS
+                    update_match_sql = f'UPDATE "{config.RDS_MATCHING_TABLE}" SET "SCORE" = %s WHERE ("UID1" = %s AND "UID2" = %s) OR ("UID1" = %s AND "UID2" = %s)'
                     matching_connect.cursor.execute(update_match_sql, (new_score, uid, other_uid, other_uid, uid))
             
             if gender == 'male':
@@ -1158,8 +1185,11 @@ def update_account():
             recommended_uids = ['uid1', 'uid2', 'uid3']
             uids_sql = "(" + ",".join(f"'{uid}'" for uid in recommended_uids) + ")"
 
-            select_sql = f"SELECT UID, DOB, TOB, LAT, LONG, HOBBIES, NAME FROM {config.PROFILE_TABLE} WHERE GENDER = '{fetch}' AND UID NOT IN {uids_sql}"
-            profile_connect.cursor.execute(select_sql)
+            # Build NOT IN clause for RDS
+            uids_placeholders = ', '.join(['%s'] * len(recommended_uids))
+            
+            select_sql = f'SELECT "UID", "DOB", "TOB", "LAT", "LONG", "HOBBIES", "NAME" FROM "{config.RDS_PROFILE_TABLE}" WHERE "GENDER" = %s AND "UID" NOT IN ({uids_placeholders})'
+            profile_connect.cursor.execute(select_sql, [fetch] + recommended_uids)
 
             # Fetch all results
             results = profile_connect.cursor.fetchall()
@@ -1176,7 +1206,7 @@ def update_account():
             # SORT LIST AND GET TOP TEN MATCHES
             sorted_pairs = sorted(zip(recommended_uids, new_scores, recommended_names), key=lambda x: x[1], reverse=True)
             recommendations = sorted_pairs[:config.MAX_MATCHES]
-            insert_sql_matching = f"INSERT INTO {config.MATCHING_TABLE} (UID1, UID2, SCORE, CREATED, UPDATED, ALIGN1, ALIGN2, SKIP1, SKIP2, BLOCK1, BLOCK2, NAME1, NAME2) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+            insert_sql_matching = f'INSERT INTO "{config.RDS_MATCHING_TABLE}" ("UID1", "UID2", "SCORE", "CREATED", "UPDATED", "ALIGN1", "ALIGN2", "SKIP1", "SKIP2", "BLOCK1", "BLOCK2", "NAME1", "NAME2") VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)'
 
             timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
             for idx, id_pair in enumerate(recommendations):
@@ -1255,12 +1285,14 @@ def chat_initiate(uid):
     if uid is None:
         return jsonify({"error": "Missing 'uid' in url"}), 400
 
-    profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
+    # Setup RDS connection
+    profile_connect = RDS_Connect(config.RDS_DB_NAME)
 
     columns = ['UID', 'NAME', 'DOB', 'CITY', 'COUNTRY', 'HOBBIES', 'PROFESSION', 'GENDER', 'INITIATE_CHATS']
-    columns_string = ', '.join(columns)
-    select_sql = f"SELECT {columns_string} FROM {config.PROFILE_TABLE} WHERE UID = '{uid}'"
-    profile_connect.cursor.execute(select_sql)
+    
+    columns_str = ', '.join([f'"{col}"' for col in columns])
+    select_sql = f'SELECT {columns_str} FROM "{config.RDS_PROFILE_TABLE}" WHERE "UID" = %s'
+    profile_connect.cursor.execute(select_sql, (uid,))
 
     results = profile_connect.cursor.fetchall()
 
@@ -1452,12 +1484,14 @@ def continue_preference():
 
     else:
 
-        profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
+        # Setup RDS connection
+        profile_connect = RDS_Connect(config.RDS_DB_NAME)
 
         columns = ['UID', 'NAME', 'DOB', 'CITY', 'COUNTRY', 'HOBBIES', 'PROFESSION', 'GENDER', 'PREFERENCE_CHATS']
-        columns_string = ', '.join(columns)
-        select_sql = f"SELECT {columns_string} FROM {config.PROFILE_TABLE} WHERE UID = '{uid}'"
-        profile_connect.cursor.execute(select_sql)
+        
+        columns_str = ', '.join([f'"{col}"' for col in columns])
+        select_sql = f'SELECT {columns_str} FROM "{config.RDS_PROFILE_TABLE}" WHERE "UID" = %s'
+        profile_connect.cursor.execute(select_sql, (uid,))
 
         results = profile_connect.cursor.fetchall()
 
@@ -1556,20 +1590,16 @@ def get_conversation():
             encryption_and_twilio_secrets['TWILIO_ACCOUNT_SID']
         )
 
-        # Connect to Snowflake
-        matching_connect = SnowConnect(
-            config.MATCHING_TABLE_WAREHOUSE,
-            config.MATCHING_TABLE_DATABASE,
-            config.MATCHING_TABLE_SCHEMA
-        )
+        # Connect to RDS
+        matching_connect = RDS_Connect(config.RDS_DB_NAME)
 
-# Check if conversation already exists
-        select_sql = f"""
-            SELECT CONVERSATION_SID 
-            FROM {config.MATCHING_TABLE} 
-            WHERE (UID1 = %s AND UID2 = %s) OR (UID1 = %s AND UID2 = %s)
-        """
-
+        # Check if conversation already exists
+        select_sql = f'''
+            SELECT "CONVERSATION_SID" 
+            FROM "{config.RDS_MATCHING_TABLE}" 
+            WHERE ("UID1" = %s AND "UID2" = %s) OR ("UID1" = %s AND "UID2" = %s)
+        '''
+        
         matching_connect.cursor.execute(select_sql, (uid1, uid2, uid2, uid1))
         result = matching_connect.cursor.fetchone()
 
@@ -1589,11 +1619,11 @@ def get_conversation():
 
             log.info(f'Conversation SID: {conversation_sid}')
             # Store conversation SID in your DB
-            update_sql = f"""
-                UPDATE {config.MATCHING_TABLE} 
-                SET CONVERSATION_SID = %s 
-                WHERE (UID1 = %s AND UID2 = %s) OR (UID1 = %s AND UID2 = %s)
-            """
+            update_sql = f'''
+                UPDATE "{config.RDS_MATCHING_TABLE}" 
+                SET "CONVERSATION_SID" = %s 
+                WHERE ("UID1" = %s AND "UID2" = %s) OR ("UID1" = %s AND "UID2" = %s)
+            '''
             
             matching_connect.cursor.execute(update_sql, (conversation_sid, uid1, uid2, uid2, uid1))
             matching_connect.conn.commit()
