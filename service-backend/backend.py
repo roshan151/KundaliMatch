@@ -33,7 +33,7 @@ from cryptography.fernet import Fernet
 
 # Custom components
 from config import config
-from sqlite_adapter import SnowConnect
+from sqlite_adapter import SQLConnect
 
 log.basicConfig(
     format='%(levelname)s [%(filename)s:%(lineno)d] %(message)s',
@@ -356,7 +356,7 @@ def create():
 
     log.info(f'Profile Images: {len(profile_images)}')
     # Setup snowflake
-    profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
+    profile_connect = SQLConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
     
     insert_sql = f"INSERT INTO {config.PROFILE_TABLE} (UID, PASSWORD, NAME, PHONE, EMAIL, EMAIL_HASH, CITY, COUNTRY, PROFESSION, BIRTH_CITY, BIRTH_COUNTRY, DOB, TOB, GENDER, HOBBIES, LAT, LONG, IMAGES, CREATED, LOGIN) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
     uid = str(uuid4())
@@ -414,7 +414,7 @@ def create():
         hobbies = ''
 
     profile_connect.cursor.execute(insert_sql, (uid, password, name, encrypted_phone, encrypted_email, hashed_email, city, country, profession, birth_city, birth_country, dob, tob, gender, hobbies, lat, long, images, timestamp, timestamp))
-    profile_connect.commit()
+    profile_connect.conn.commit()
     
     if gender == 'male':
         fetch = 'female'
@@ -454,7 +454,7 @@ def create():
 
     log.info(f'Recommendations: {recommendations}')
 
-    matching_connect  = SnowConnect(config.MATCHING_TABLE_WAREHOUSE, config.MATCHING_TABLE_DATABASE, config.MATCHING_TABLE_SCHEMA)
+    matching_connect  = SQLConnect(config.MATCHING_TABLE_WAREHOUSE, config.MATCHING_TABLE_DATABASE, config.MATCHING_TABLE_SCHEMA)
     # Post recommendations to matching table
 
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
@@ -462,7 +462,7 @@ def create():
     for item in recommendations:
         matching_connect.cursor.execute(insert_sql_matching, (uid, name, item[0], str(item[2]), str(item[1]), timestamp, timestamp, False, False, False, False, False, False ) )
 
-    matching_connect.commit()
+    matching_connect.conn.commit()
     matching_connect.close()
 
     return {'UID' : uid}, None
@@ -524,13 +524,15 @@ def login():
     if not validate_email(email):
         return jsonify({'error': 'Invalid email format'}), 400
 
-    # Setup SQLite connection
-    profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
+    # Setup RDS connection
+    profile_connect = SQLConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
 
-    # Use SHA256 hash for email lookup in SQLite
+    
+    # Use SHA256 hash for email lookup - compute hash in Python for SQLite compatibility
     hashed_email = hash_email_sha256(email)
     select_sql = f"SELECT UID, PASSWORD, NOTIFICATIONS, EMAIL, PHONE, LOGIN FROM {config.PROFILE_TABLE} WHERE EMAIL_HASH = ?"
 
+     
     profile_connect.cursor.execute(select_sql, (hashed_email,))
     result = profile_connect.cursor.fetchone()
 
@@ -543,10 +545,10 @@ def login():
     uid = result[0]
     current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
     
-    # Update login time using SQLite
+    # Update login time using RDS
     update_sql = f"UPDATE {config.PROFILE_TABLE} SET LOGIN = '{current_time}' WHERE UID = '{uid}'"
     profile_connect.cursor.execute(update_sql)
-    profile_connect.commit()
+    profile_connect.conn.commit()
     profile_connect.close()
 
     notifications_url = result[2]
@@ -608,8 +610,8 @@ def login():
 @app.route('/get:user/<uid>', methods=['GET'])
 def get_user(uid):
     # Setup RDS connection
-    profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
-    select_sql = f"SELECT NAME, DOB, CITY, COUNTRY, IMAGES, HOBBIES, PROFESSION, GENDER, NOTIFICATIONS, EMAIL, PHONE FROM {config.PROFILE_TABLE} WHERE UID = '{uid}'"
+    profile_connect = SQLConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
+    select_sql = f"SELECT NAME, DOB, CITY, COUNTRY, IMAGES, HOBBIES, PROFESSION, GENDER, NOTIFICATIONS, EMAIL, PHONE, FILTERS FROM {config.PROFILE_TABLE} WHERE UID = '{uid}'"
     profile_connect.cursor.execute(select_sql)
     result = profile_connect.cursor.fetchone()
 
@@ -627,23 +629,78 @@ def get_user(uid):
         'HOBBIES': result[5],
         'PROFESSION': result[6],
         'GENDER': result[7],
+        'FILTERS' : result[-1],
         'EMAIL': decrypt_sensitive_data( result[9] ),
         'PHONE' : decrypt_sensitive_data( result[10] ),
         'ERROR': 'OK'
     }
 
-    profile_connect.commit()
+    profile_connect.conn.commit()
     profile_connect.close()
 
     return jsonify(user_data)
 
+# TODO - Verify llm response is a json and extracted cards has all details
+def verify_cards(response_json):
+    return response_json
+
+# TODO - Use LLM to filter cards 
+# Provide saved filters of user (not more than 5) - User can ask LLM to edit these filters
+# LLM analyzes all cards together, thios gives it better context of each card
+# ALso ask why is a good match
+def filter_cards(uid, cards, new_filter = None):
+    
+    if new_filter:
+        user_filters = [new_filter]
+    else:
+        user_details = get_user(uid)
+        user_filters = user_details['FILTERS']
+        user_details.pop('EMAIL', None)
+        user_details.pop('PHONE', None)
+        user_details.pop('ERROR', None)
+        user_details.pop('UID', None)
+        user_details.pop('IMAGES', None)
+
+    if isinstance(user_filters, list) and len(user_filters) > 0:
+        enhanced_cards = []
+        for card in cards:
+            card_details = get_user(card['recommendation_uid'])
+            card_details.pop('EMAIL', None)
+            card_details.pop('PHONE', None)
+            card_details.pop('ERROR', None)
+            card_details.pop('UID', None)
+            card_details.pop('IMAGES', None)
+            card_details['RECOMMENDATION_SCORE'] = card['score']
+
+            enhanced_cards.append(card_details)
+
+        prompts = load_prompts(config.PROMPTS_YAML)
+        filter_prompt = prompts['filter_system_prompt'].format(user_details = user_details, recommended_cards = enhanced_cards)
+
+        # Ask LLM to respond in a json format with filtered cards
+        messages = []
+        messages.append(SystemMessage(content=filter_prompt))
+
+        try:
+            response = llm(messages)
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+        # Marshall the json and return cards
+        respose_json = verify_cards(response.json())
+
+    if new_filter:
+
+        # Asyncronous task to add
+        log.info('TODO- Asyncronously update user filter')
+
+    return cards
+
 def fetch_queue(uid, queue_requested):
-    matching_connect = SnowConnect(config.MATCHING_TABLE_WAREHOUSE, config.MATCHING_TABLE_DATABASE, config.MATCHING_TABLE_SCHEMA)
+    matching_connect = SQLConnect(config.MATCHING_TABLE_WAREHOUSE, config.MATCHING_TABLE_DATABASE, config.MATCHING_TABLE_SCHEMA)
     sql = f"SELECT UID1, UID2, SCORE, UPDATED, ALIGN1, ALIGN2, SKIP1, SKIP2, BLOCK1, BLOCK2, NAME1, NAME2 FROM {config.MATCHING_TABLE} WHERE UID1 = '{uid}' OR UID2 = '{uid}'"
-    cursor = matching_connect.cursor
-    cursor.execute(sql)
-    results = cursor.fetchall()
-    cursor.close()
+    matching_connect.cursor.execute(sql)
+    results = matching_connect.cursor.fetchall()
 
     cards = []
     for row in results:
@@ -679,7 +736,10 @@ def fetch_queue(uid, queue_requested):
             'blocked_by_user' : usr_block
         })
 
-    matching_connect.commit()
+    if queue == 'RECOMMENDATIONS':
+        cards = filter_cards(uid, cards)
+
+    matching_connect.conn.commit()
     matching_connect.close()
     return cards
 
@@ -742,7 +802,7 @@ def get_profile(uid):
         return jsonify({"error": "Missing 'uid' in url"}), 400
 
     # Setup RDS connection
-    profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
+    profile_connect = SQLConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
 
     columns = ['UID', 'NAME', 'DOB', 'CITY', 'COUNTRY', 'IMAGES', 'HOBBIES', 'PROFESSION', 'GENDER']
     columns_string = ', '.join(columns)
@@ -791,7 +851,7 @@ async def update_notifications_or_chats(uid, new_notifications_or_chats, column)
         log.warning(f"Unsupported datatype/snowflake column: {column}. Supported datatypes are ['notifications', 'initiate_chats', 'preference_chats']")
         return None
     
-    profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
+    profile_connect = SQLConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
     select_sql = f"SELECT UID, CREATED, PASSWORD, LOGIN, {col} FROM {config.PROFILE_TABLE} WHERE UID = '{uid}'"
     profile_connect.cursor.execute(select_sql)
 
@@ -852,7 +912,7 @@ async def update_notifications_or_chats(uid, new_notifications_or_chats, column)
             update_sql = f"UPDATE {config.PROFILE_TABLE} SET {col} = '{str(path)}' WHERE UID = '{uid}'"
             
             profile_connect.cursor.execute(update_sql)
-            profile_connect.commit()
+            profile_connect.conn.commit()
 
         else:
             try:
@@ -883,7 +943,7 @@ def action():
 
     valid_cols = ['UID1', 'UID2', 'SCORE', 'UPDATED', 'ALIGN1', 'ALIGN2', 'SKIP1', 'SKIP2', 'BLOCK1', 'BLOCK2', 'NAME1', 'NAME2']
     
-    matching_connect = SnowConnect(config.MATCHING_TABLE_WAREHOUSE, config.MATCHING_TABLE_DATABASE, config.MATCHING_TABLE_SCHEMA)
+    matching_connect = SQLConnect(config.MATCHING_TABLE_WAREHOUSE, config.MATCHING_TABLE_DATABASE, config.MATCHING_TABLE_SCHEMA)
     
     sql_fetch = f"SELECT UID1, UID2, SCORE, UPDATED, ALIGN1, ALIGN2, SKIP1, SKIP2, BLOCK1, BLOCK2, NAME1, NAME2 FROM {config.MATCHING_TABLE} WHERE (UID1 = '{uid}' AND UID2 = '{rec_uid}') OR (UID1 = '{rec_uid}' AND UID2= '{uid}')"
     matching_connect.cursor.execute(sql_fetch)
@@ -931,7 +991,7 @@ def action():
             log.warning(f'{align_col} not a valid column')
 
 
-        update_sql = f"UPDATE {config.MATCHING_TABLE} SET {align_col} = 1, UPDATED = '{current_time}' WHERE UID1 = '{result[0]}' AND UID2 = '{result[1]}'"
+        update_sql = f"UPDATE {config.MATCHING_TABLE} SET {align_col} = {True}, UPDATED = '{current_time}' WHERE UID1 = '{result[0]}' AND UID2 = '{result[1]}'"
         matching_connect.cursor.execute(update_sql)
 
         if result[4+rec_idx] == True:
@@ -960,12 +1020,12 @@ def action():
         if block_col not in valid_cols:
             log.warning(f'{block_col} not a valid column')
 
-        update_sql = f"UPDATE {config.MATCHING_TABLE} SET {block_col} = 1, UPDATED = '{current_time}' WHERE UID1 = '{result[0]}' AND UID2 = '{result[1]}'"
+        update_sql = f"UPDATE {config.MATCHING_TABLE} SET {block_col} = {True}, UPDATED = '{current_time}' WHERE UID1 = '{result[0]}' AND UID2 = '{result[1]}'"
         matching_connect.cursor.execute(update_sql)
 
         queue = 'MATCHED'
 
-    matching_connect.commit()
+    matching_connect.conn.commit()
     matching_connect.close()
 
     # Creates and destroys event loop
@@ -997,14 +1057,14 @@ def verify_email():
     hashed_email = hash_email_sha256(email)
 
     # Setup RDS connection
-    profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
+    profile_connect = SQLConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
 
     # Compare with encrypted email in database
     sql_fetch = f"SELECT UID FROM {config.PROFILE_TABLE} WHERE EMAIL=%s"
     profile_connect.cursor.execute(sql_fetch, (hashed_email,))
     results = profile_connect.cursor.fetchall()
 
-    profile_connect.commit()
+    profile_connect.conn.commit()
     profile_connect.close()
 
     if len(results) > 0:
@@ -1091,9 +1151,9 @@ def update_account():
     update_sql = f"UPDATE {config.PROFILE_TABLE} SET {set_clause} WHERE UID = %s"
 
     try:
-        profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
+        profile_connect = SQLConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
         profile_connect.cursor.execute(update_sql, values)
-        profile_connect.commit()
+        profile_connect.conn.commit()
     except Exception as e:
         log.error(f"Failed to update profile: {e}")
         return jsonify({'error': 'Database error during update'}), 500
@@ -1112,7 +1172,7 @@ def update_account():
         log.info(f"Recalculating matching score for UID: {uid} due to updates.")
 
         # Re-fetch updated user profile
-        profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
+        profile_connect = SQLConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
         profile_connect.cursor.execute(f"SELECT UID, DOB, TOB, LAT, LONG, HOBBIES, GENDER, NAME FROM {config.PROFILE_TABLE} WHERE UID = %s", (uid,))
         current_user = profile_connect.cursor.fetchone()
         
@@ -1120,7 +1180,7 @@ def update_account():
             uid, dob, tob, lat, long, hobbies, gender, user_name = current_user
 
             # Fetch all matches where this user is involved
-            matching_connect = SnowConnect(config.MATCHING_TABLE_WAREHOUSE, config.MATCHING_TABLE_DATABASE, config.MATCHING_TABLE_SCHEMA)
+            matching_connect = SQLConnect(config.MATCHING_TABLE_WAREHOUSE, config.MATCHING_TABLE_DATABASE, config.MATCHING_TABLE_SCHEMA)
             match_query = f"SELECT UID1, UID2 FROM {config.MATCHING_TABLE} WHERE UID1 = %s OR UID2 = %s"
             matching_connect.cursor.execute(match_query, (uid, uid))
             match_rows = matching_connect.cursor.fetchall()
@@ -1180,7 +1240,7 @@ def update_account():
             for idx, id_pair in enumerate(recommendations):
                 if id_pair[0] not in previous_uids:
                     matching_connect.cursor.execute(insert_sql_matching, (uid, id_pair[0], str(id_pair[1]), timestamp, timestamp, False, False, False, False, False, False, user_name, id_pair[-1]) )
-            matching_connect.commit()
+            matching_connect.conn.commit()
             matching_connect.close()
 
     return jsonify({'UID' : uid, 'error' : 'OK'}), 200
@@ -1253,7 +1313,7 @@ def chat_initiate(uid):
     if uid is None:
         return jsonify({"error": "Missing 'uid' in url"}), 400
 
-    profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
+    profile_connect = SQLConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
 
     columns = ['UID', 'NAME', 'DOB', 'CITY', 'COUNTRY', 'HOBBIES', 'PROFESSION', 'GENDER', 'INITIATE_CHATS']
     columns_string = ', '.join(columns)
@@ -1275,12 +1335,10 @@ def chat_initiate(uid):
     hobbies = result[5]
 
     profile_connect.close()
-
     chats_url = result[-1]
 
     previous_chats = load_previous_chats(chats_url)
     prompts = load_prompts(config.PROMPTS_YAML)
-
     system_prompt = prompts['initiate_system_prompt'].format(name = name, hobbies = hobbies, previous_chats = previous_chats)
 
     # Start with system message if no history
@@ -1450,7 +1508,7 @@ def continue_preference():
 
     else:
 
-        profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
+        profile_connect = SQLConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
 
         columns = ['UID', 'NAME', 'DOB', 'CITY', 'COUNTRY', 'HOBBIES', 'PROFESSION', 'GENDER', 'PREFERENCE_CHATS']
         columns_string = ', '.join(columns)
@@ -1555,7 +1613,7 @@ def get_conversation():
         )
 
         # Connect to Snowflake
-        matching_connect = SnowConnect(
+        matching_connect = SQLConnect(
             config.MATCHING_TABLE_WAREHOUSE,
             config.MATCHING_TABLE_DATABASE,
             config.MATCHING_TABLE_SCHEMA
@@ -1594,7 +1652,7 @@ def get_conversation():
             """
             
             matching_connect.cursor.execute(update_sql, (conversation_sid, uid1, uid2, uid2, uid1))
-            matching_connect.commit()
+            matching_connect.conn.commit()
 
         matching_connect.close()
 

@@ -1,151 +1,103 @@
-# SQLite Migration for KundaliMatch Backend
+# SQLite Migration Guide
 
-This document describes the migration from Snowflake to SQLite for the KundaliMatch backend service.
+This guide explains how to run the backend with SQLite instead of Snowflake.
 
-## What Was Changed
+## Overview
 
-### 1. Database Adapter
-- **Before**: Used `snowflake_utils.py` with SnowConnect class for Snowflake database
-- **After**: Created `sqlite_adapter.py` with SQLiteConnect class that communicates with SQLite HTTP service
+The backend has been migrated from Snowflake to SQLite with the following changes:
 
-### 2. SQL Compatibility
-- **Parameter binding**: Changed from Snowflake `%s` style to SQLite `?` style
-- **Boolean values**: Changed from Python `True/False` to SQLite `1/0`  
-- **Hash functions**: Replaced `SHA2(%s, 256)` with Python's `hash_email_sha256()` function
-- **Connection methods**: Updated `.conn.commit()` to `.commit()` for the new adapter
-
-### 3. New Files Created
-- `sqlite_adapter.py` - SQLite HTTP service client adapter
-- `setup_sqlite_schema.py` - Database schema creation script
-- `README_SQLITE_MIGRATION.md` - This documentation
-
-## Prerequisites
-
-1. **Python packages**: The backend now requires `requests` for HTTP communication
-   ```bash
-   pip install requests
-   ```
-
-2. **SQLite HTTP Service**: Must be running on port 8030
-   ```bash
-   cd ../service-sqlite
-   python sqlite_service.py
-   ```
+- **New SQLite Adapter**: `sqlite_adapter.py` - Mimics the Snowflake interface but connects to a SQLite HTTP service
+- **Database Tables**: Converted to SQLite-compatible schema
+- **Query Compatibility**: Automatically converts Snowflake-style queries (`%s`) to SQLite format (`?`)
 
 ## Setup Instructions
 
 ### 1. Start the SQLite Service
+
+First, start the SQLite HTTP service:
+
 ```bash
-# In terminal 1
 cd service-sqlite
 python sqlite_service.py
 ```
 
-### 2. Create Database Schema
+The service will run on `http://localhost:8030`
+
+### 2. Initialize Database Tables
+
+Run the initialization script to create the required tables:
+
 ```bash
-# In terminal 2
 cd service-backend
-python setup_sqlite_schema.py
+python init_sqlite_tables.py
 ```
 
+This will create:
+- `PROFILE_DB` table (user profiles)
+- `MATCHING_TABLE` table (matching data)
+- Appropriate indexes for performance
+
 ### 3. Start the Backend Service
+
+Now you can start the backend service as usual:
+
 ```bash
-# In the same terminal
+cd service-backend
 python backend.py
 ```
 
-## Architecture Overview
+## What Changed
 
-```
-Backend Service (backend.py)
-        ↓
-SQLite Adapter (sqlite_adapter.py)
-        ↓ HTTP requests
-SQLite HTTP Service (service-sqlite/sqlite_service.py)
-        ↓
-SQLite Database (sqlite_service.db)
-```
+### Files Modified:
+- `backend.py` - Updated import from `snowflake_utils` to `sqlite_adapter`
+- `requirements.txt` - Removed `snowflake-connector-python` dependency
 
-## Key Benefits
+### Files Added:
+- `sqlite_adapter.py` - SQLite adapter that mimics Snowflake interface
+- `init_sqlite_tables.py` - Database initialization script
+- `README_SQLite_Migration.md` - This guide
 
-1. **Simplified deployment**: No need for cloud database credentials
-2. **Local development**: Everything runs locally
-3. **Cost reduction**: No cloud database costs
-4. **Easy backup**: Simple file-based database
-5. **No vendor lock-in**: Standard SQLite format
+### Database Schema:
+The SQLite tables maintain the same structure as the original Snowflake tables:
 
-## Compatibility
+- **PROFILE_DB**: User profile information
+- **MATCHING_TABLE**: User matching and relationship data
 
-The migration maintains full API compatibility:
-- All REST endpoints work exactly the same
-- Request/response formats unchanged
-- Authentication and encryption unchanged
-- File upload/download functionality unchanged
+## Key Features
 
-## Database Schema
-
-### PROFILE Table
-- Stores user profile information
-- Primary key: `UID`
-- Includes encrypted phone/email fields
-- Supports image paths, location data, and preferences
-
-### MATCHING Table  
-- Stores user matching/recommendation data
-- Composite primary key: `(UID1, UID2)`
-- Tracks alignment, skip, and block actions
-- Includes scoring and conversation data
+1. **Drop-in Replacement**: The SQLite adapter maintains the same interface as Snowflake
+2. **Automatic Query Conversion**: Snowflake-style parameterized queries (`%s`) are automatically converted to SQLite format (`?`)
+3. **HTTP-based Service**: SQLite operations go through a REST API for consistency
+4. **Easy Migration**: Minimal changes to existing backend code
 
 ## Troubleshooting
 
 ### SQLite Service Not Running
+If you get connection errors, ensure the SQLite service is running:
+```bash
+curl http://localhost:8030/
 ```
-Error: Cannot connect to SQLite service at http://localhost:8030
+
+### Database Not Initialized
+If you get table-related errors, run the initialization script:
+```bash
+python init_sqlite_tables.py
 ```
-**Solution**: Start the SQLite service first (see step 1 above)
 
-### Database Schema Missing
-```
-Error: no such table: PROFILE
-```
-**Solution**: Run the schema setup script (see step 2 above)
+### Data Migration
+To migrate existing data from Snowflake to SQLite, you would need to:
+1. Export data from Snowflake to CSV
+2. Load the CSV data into SQLite using the `/execute` endpoint
 
-### Connection Errors
-- Ensure no firewall blocking port 8030
-- Check that SQLite service started successfully
-- Verify no other service using port 8030
+## Performance Notes
 
-## Performance Considerations
+- SQLite is suitable for development and moderate production loads
+- For high-scale production, consider PostgreSQL or other robust databases
+- The HTTP service layer adds some latency compared to direct database connections
 
-- SQLite HTTP service handles one request at a time
-- For production use, consider connection pooling
-- Database file grows with data - monitor disk space
-- Regular VACUUM operations may help performance
+## Next Steps
 
-## Migration Verification
-
-To verify the migration worked correctly:
-
-1. Check SQLite service health:
-   ```bash
-   curl http://localhost:8030/
-   ```
-
-2. List database tables:
-   ```bash
-   curl http://localhost:8030/tables
-   ```
-
-3. Test backend health:
-   ```bash
-   curl http://localhost:5000/
-   ```
-
-## Rollback Plan
-
-To rollback to Snowflake:
-1. Restore original `backend.py` from version control
-2. Ensure Snowflake credentials are configured
-3. Restart the backend service
-
-The SQLite adapter is designed to be a drop-in replacement, so rollback should be straightforward. 
+1. Test all backend endpoints to ensure compatibility
+2. Consider migrating the SQLite service to use direct SQLite connections for better performance
+3. Add database backup and recovery procedures
+4. Monitor performance and optimize queries as needed 

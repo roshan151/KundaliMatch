@@ -1,7 +1,6 @@
 flask
 requests
 boto3
-snowflake-connector-python
 pillow
 geopy
 dotenv
