@@ -23,7 +23,6 @@ class Config:
     SNOWFLAKE_USERNAME = 'TeamKreative'
     SNOWFLAKE_ACCOUNT_ID = 'jkfvgpq-bk60648'
 
-
     # AWS RDS Configuration
     RDS_DB_NAME = 'AlignedDB'
 
@@ -40,9 +39,6 @@ class Config:
     # Service Configuration
     KUNDALI_SERVICE_URL = "http://kundali-service"
     KUNDALI_SERVICE_PORT = "8000"
-
-    SQL_SERVICE_URL = "http://sql-service"
-    SQL_SERVICE_PORT = "8030"
     PROMPTS_YAML = 'prompts.yaml'
     OPENAI_MODEL_NAME = "gpt-4o-mini"
 

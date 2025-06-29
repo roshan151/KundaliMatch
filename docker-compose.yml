@@ -4,6 +4,7 @@ services:
     ports:
       - "8040:8040"
     depends_on:
+      - sql-service
       - kundali-service
     environment:
       DEPLOYMENT_ENV: local
@@ -15,3 +16,8 @@ services:
     build: ./service-kundali
     ports:
       - "8000:8000"
+
+  sql-service:
+    build: ./service-sqlite
+    ports:
+      - 8030:8030

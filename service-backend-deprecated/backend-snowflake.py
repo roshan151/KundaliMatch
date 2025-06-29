@@ -33,7 +33,7 @@ from cryptography.fernet import Fernet
 
 # Custom components
 from config import config
-from sqlite_adapter import SQLConnect
+from snowflake_utils import SnowConnect
 
 log.basicConfig(
     format='%(levelname)s [%(filename)s:%(lineno)d] %(message)s',
@@ -93,7 +93,7 @@ s3 = boto3.client(
 # Initialize encryption key
 def get_encryption_key():
     """Get or create encryption key"""
-    key = secrets['ENCRYPTION_KEY']
+    key = encryption_and_twilio_secrets['ENCRYPTION_KEY']
     if not key:
         #key = Fernet.generate_key()
         raise Exception("No encryption key found in environment. Please set ENCRYPTION_KEY environment variable.")
@@ -356,7 +356,7 @@ def create():
 
     log.info(f'Profile Images: {len(profile_images)}')
     # Setup snowflake
-    profile_connect = SQLConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
+    profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
     
     insert_sql = f"INSERT INTO {config.PROFILE_TABLE} (UID, PASSWORD, NAME, PHONE, EMAIL, EMAIL_HASH, CITY, COUNTRY, PROFESSION, BIRTH_CITY, BIRTH_COUNTRY, DOB, TOB, GENDER, HOBBIES, LAT, LONG, IMAGES, CREATED, LOGIN) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
     uid = str(uuid4())
@@ -454,7 +454,7 @@ def create():
 
     log.info(f'Recommendations: {recommendations}')
 
-    matching_connect  = SQLConnect(config.MATCHING_TABLE_WAREHOUSE, config.MATCHING_TABLE_DATABASE, config.MATCHING_TABLE_SCHEMA)
+    matching_connect  = SnowConnect(config.MATCHING_TABLE_WAREHOUSE, config.MATCHING_TABLE_DATABASE, config.MATCHING_TABLE_SCHEMA)
     # Post recommendations to matching table
 
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
@@ -525,15 +525,15 @@ def login():
         return jsonify({'error': 'Invalid email format'}), 400
 
     # Setup RDS connection
-    profile_connect = SQLConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
+    profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
 
     
-    # Use SHA256 hash for email lookup - compute hash in Python for SQLite compatibility
-    hashed_email = hash_email_sha256(email)
-    select_sql = f"SELECT UID, PASSWORD, NOTIFICATIONS, EMAIL, PHONE, LOGIN FROM {config.PROFILE_TABLE} WHERE EMAIL_HASH = ?"
+    # Use SHA256 hash for email lookup in RDS (PostgreSQL uses different hash function)
+    #hashed_email = hash_email_sha256(email)
+    select_sql = f"SELECT UID, PASSWORD, NOTIFICATIONS, EMAIL, PHONE, LOGIN FROM {config.PROFILE_TABLE} WHERE EMAIL_HASH = SHA2(%s, 256)"
 
      
-    profile_connect.cursor.execute(select_sql, (hashed_email,))
+    profile_connect.cursor.execute(select_sql, (email,))
     result = profile_connect.cursor.fetchone()
 
     if not result:
@@ -610,8 +610,8 @@ def login():
 @app.route('/get:user/<uid>', methods=['GET'])
 def get_user(uid):
     # Setup RDS connection
-    profile_connect = SQLConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
-    select_sql = f"SELECT NAME, DOB, CITY, COUNTRY, IMAGES, HOBBIES, PROFESSION, GENDER, NOTIFICATIONS, EMAIL, PHONE, FILTERS FROM {config.PROFILE_TABLE} WHERE UID = '{uid}'"
+    profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
+    select_sql = f"SELECT NAME, DOB, CITY, COUNTRY, IMAGES, HOBBIES, PROFESSION, GENDER, NOTIFICATIONS, EMAIL, PHONE FROM {config.PROFILE_TABLE} WHERE UID = '{uid}'"
     profile_connect.cursor.execute(select_sql)
     result = profile_connect.cursor.fetchone()
 
@@ -629,7 +629,6 @@ def get_user(uid):
         'HOBBIES': result[5],
         'PROFESSION': result[6],
         'GENDER': result[7],
-        'FILTERS' : result[-1],
         'EMAIL': decrypt_sensitive_data( result[9] ),
         'PHONE' : decrypt_sensitive_data( result[10] ),
         'ERROR': 'OK'
@@ -640,67 +639,13 @@ def get_user(uid):
 
     return jsonify(user_data)
 
-# TODO - Verify llm response is a json and extracted cards has all details
-def verify_cards(response_json):
-    return response_json
-
-# TODO - Use LLM to filter cards 
-# Provide saved filters of user (not more than 5) - User can ask LLM to edit these filters
-# LLM analyzes all cards together, thios gives it better context of each card
-# ALso ask why is a good match
-def filter_cards(uid, cards, new_filter = None):
-    
-    if new_filter:
-        user_filters = [new_filter]
-    else:
-        user_details = get_user(uid)
-        user_filters = user_details['FILTERS']
-        user_details.pop('EMAIL', None)
-        user_details.pop('PHONE', None)
-        user_details.pop('ERROR', None)
-        user_details.pop('UID', None)
-        user_details.pop('IMAGES', None)
-
-    if isinstance(user_filters, list) and len(user_filters) > 0:
-        enhanced_cards = []
-        for card in cards:
-            card_details = get_user(card['recommendation_uid'])
-            card_details.pop('EMAIL', None)
-            card_details.pop('PHONE', None)
-            card_details.pop('ERROR', None)
-            card_details.pop('UID', None)
-            card_details.pop('IMAGES', None)
-            card_details['RECOMMENDATION_SCORE'] = card['score']
-
-            enhanced_cards.append(card_details)
-
-        prompts = load_prompts(config.PROMPTS_YAML)
-        filter_prompt = prompts['filter_system_prompt'].format(user_details = user_details, recommended_cards = enhanced_cards)
-
-        # Ask LLM to respond in a json format with filtered cards
-        messages = []
-        messages.append(SystemMessage(content=filter_prompt))
-
-        try:
-            response = llm(messages)
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
-
-        # Marshall the json and return cards
-        respose_json = verify_cards(response.json())
-
-    if new_filter:
-
-        # Asyncronous task to add
-        log.info('TODO- Asyncronously update user filter')
-
-    return cards
-
 def fetch_queue(uid, queue_requested):
-    matching_connect = SQLConnect(config.MATCHING_TABLE_WAREHOUSE, config.MATCHING_TABLE_DATABASE, config.MATCHING_TABLE_SCHEMA)
+    matching_connect = SnowConnect(config.MATCHING_TABLE_WAREHOUSE, config.MATCHING_TABLE_DATABASE, config.MATCHING_TABLE_SCHEMA)
     sql = f"SELECT UID1, UID2, SCORE, UPDATED, ALIGN1, ALIGN2, SKIP1, SKIP2, BLOCK1, BLOCK2, NAME1, NAME2 FROM {config.MATCHING_TABLE} WHERE UID1 = '{uid}' OR UID2 = '{uid}'"
-    matching_connect.cursor.execute(sql)
-    results = matching_connect.cursor.fetchall()
+    cursor = matching_connect.conn.cursor()
+    cursor.execute(sql)
+    results = cursor.fetchall()
+    cursor.close()
 
     cards = []
     for row in results:
@@ -735,9 +680,6 @@ def fetch_queue(uid, queue_requested):
             'blocked_by_match' : rec_block, 
             'blocked_by_user' : usr_block
         })
-
-    if queue == 'RECOMMENDATIONS':
-        cards = filter_cards(uid, cards)
 
     matching_connect.conn.commit()
     matching_connect.close()
@@ -802,7 +744,7 @@ def get_profile(uid):
         return jsonify({"error": "Missing 'uid' in url"}), 400
 
     # Setup RDS connection
-    profile_connect = SQLConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
+    profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
 
     columns = ['UID', 'NAME', 'DOB', 'CITY', 'COUNTRY', 'IMAGES', 'HOBBIES', 'PROFESSION', 'GENDER']
     columns_string = ', '.join(columns)
@@ -851,7 +793,7 @@ async def update_notifications_or_chats(uid, new_notifications_or_chats, column)
         log.warning(f"Unsupported datatype/snowflake column: {column}. Supported datatypes are ['notifications', 'initiate_chats', 'preference_chats']")
         return None
     
-    profile_connect = SQLConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
+    profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
     select_sql = f"SELECT UID, CREATED, PASSWORD, LOGIN, {col} FROM {config.PROFILE_TABLE} WHERE UID = '{uid}'"
     profile_connect.cursor.execute(select_sql)
 
@@ -943,7 +885,7 @@ def action():
 
     valid_cols = ['UID1', 'UID2', 'SCORE', 'UPDATED', 'ALIGN1', 'ALIGN2', 'SKIP1', 'SKIP2', 'BLOCK1', 'BLOCK2', 'NAME1', 'NAME2']
     
-    matching_connect = SQLConnect(config.MATCHING_TABLE_WAREHOUSE, config.MATCHING_TABLE_DATABASE, config.MATCHING_TABLE_SCHEMA)
+    matching_connect = SnowConnect(config.MATCHING_TABLE_WAREHOUSE, config.MATCHING_TABLE_DATABASE, config.MATCHING_TABLE_SCHEMA)
     
     sql_fetch = f"SELECT UID1, UID2, SCORE, UPDATED, ALIGN1, ALIGN2, SKIP1, SKIP2, BLOCK1, BLOCK2, NAME1, NAME2 FROM {config.MATCHING_TABLE} WHERE (UID1 = '{uid}' AND UID2 = '{rec_uid}') OR (UID1 = '{rec_uid}' AND UID2= '{uid}')"
     matching_connect.cursor.execute(sql_fetch)
@@ -1057,7 +999,7 @@ def verify_email():
     hashed_email = hash_email_sha256(email)
 
     # Setup RDS connection
-    profile_connect = SQLConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
+    profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
 
     # Compare with encrypted email in database
     sql_fetch = f"SELECT UID FROM {config.PROFILE_TABLE} WHERE EMAIL=%s"
@@ -1151,7 +1093,7 @@ def update_account():
     update_sql = f"UPDATE {config.PROFILE_TABLE} SET {set_clause} WHERE UID = %s"
 
     try:
-        profile_connect = SQLConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
+        profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
         profile_connect.cursor.execute(update_sql, values)
         profile_connect.conn.commit()
     except Exception as e:
@@ -1172,7 +1114,7 @@ def update_account():
         log.info(f"Recalculating matching score for UID: {uid} due to updates.")
 
         # Re-fetch updated user profile
-        profile_connect = SQLConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
+        profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
         profile_connect.cursor.execute(f"SELECT UID, DOB, TOB, LAT, LONG, HOBBIES, GENDER, NAME FROM {config.PROFILE_TABLE} WHERE UID = %s", (uid,))
         current_user = profile_connect.cursor.fetchone()
         
@@ -1180,7 +1122,7 @@ def update_account():
             uid, dob, tob, lat, long, hobbies, gender, user_name = current_user
 
             # Fetch all matches where this user is involved
-            matching_connect = SQLConnect(config.MATCHING_TABLE_WAREHOUSE, config.MATCHING_TABLE_DATABASE, config.MATCHING_TABLE_SCHEMA)
+            matching_connect = SnowConnect(config.MATCHING_TABLE_WAREHOUSE, config.MATCHING_TABLE_DATABASE, config.MATCHING_TABLE_SCHEMA)
             match_query = f"SELECT UID1, UID2 FROM {config.MATCHING_TABLE} WHERE UID1 = %s OR UID2 = %s"
             matching_connect.cursor.execute(match_query, (uid, uid))
             match_rows = matching_connect.cursor.fetchall()
@@ -1313,7 +1255,7 @@ def chat_initiate(uid):
     if uid is None:
         return jsonify({"error": "Missing 'uid' in url"}), 400
 
-    profile_connect = SQLConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
+    profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
 
     columns = ['UID', 'NAME', 'DOB', 'CITY', 'COUNTRY', 'HOBBIES', 'PROFESSION', 'GENDER', 'INITIATE_CHATS']
     columns_string = ', '.join(columns)
@@ -1335,10 +1277,12 @@ def chat_initiate(uid):
     hobbies = result[5]
 
     profile_connect.close()
+
     chats_url = result[-1]
 
     previous_chats = load_previous_chats(chats_url)
     prompts = load_prompts(config.PROMPTS_YAML)
+
     system_prompt = prompts['initiate_system_prompt'].format(name = name, hobbies = hobbies, previous_chats = previous_chats)
 
     # Start with system message if no history
@@ -1508,7 +1452,7 @@ def continue_preference():
 
     else:
 
-        profile_connect = SQLConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
+        profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
 
         columns = ['UID', 'NAME', 'DOB', 'CITY', 'COUNTRY', 'HOBBIES', 'PROFESSION', 'GENDER', 'PREFERENCE_CHATS']
         columns_string = ', '.join(columns)
@@ -1562,9 +1506,9 @@ def generate_chat_token(uid):
             return jsonify({"error": "Missing 'uid' in url"}), 400
 
         token = AccessToken(
-            secrets['TWILIO_ACCOUNT_SID'],
-            secrets['TWILIO_API_KEY'],
-            secrets['TWILIO_API_SECRET'],
+            encryption_and_twilio_secrets['TWILIO_ACCOUNT_SID'],
+            encryption_and_twilio_secrets['TWILIO_API_KEY'],
+            encryption_and_twilio_secrets['TWILIO_API_SECRET'],
             identity=uid
         )
 
@@ -1607,13 +1551,13 @@ def get_conversation():
 
         # Init Twilio client
         client = Client(
-            secrets['TWILIO_API_KEY'],
-            secrets['TWILIO_API_SECRET'],
-            secrets['TWILIO_ACCOUNT_SID']
+            encryption_and_twilio_secrets['TWILIO_API_KEY'],
+            encryption_and_twilio_secrets['TWILIO_API_SECRET'],
+            encryption_and_twilio_secrets['TWILIO_ACCOUNT_SID']
         )
 
         # Connect to Snowflake
-        matching_connect = SQLConnect(
+        matching_connect = SnowConnect(
             config.MATCHING_TABLE_WAREHOUSE,
             config.MATCHING_TABLE_DATABASE,
             config.MATCHING_TABLE_SCHEMA
