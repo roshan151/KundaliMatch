@@ -414,7 +414,7 @@ def create():
         hobbies = ''
 
     profile_connect.cursor.execute(insert_sql, (uid, password, name, encrypted_phone, encrypted_email, hashed_email, city, country, profession, birth_city, birth_country, dob, tob, gender, hobbies, lat, long, images, timestamp, timestamp))
-    profile_connect.commit()
+    profile_connect.conn.commit()
     
     if gender == 'male':
         fetch = 'female'
@@ -462,7 +462,7 @@ def create():
     for item in recommendations:
         matching_connect.cursor.execute(insert_sql_matching, (uid, name, item[0], str(item[2]), str(item[1]), timestamp, timestamp, False, False, False, False, False, False ) )
 
-    matching_connect.commit()
+    matching_connect.conn.commit()
     matching_connect.close()
 
     return {'UID' : uid}, None
@@ -543,10 +543,10 @@ def login():
     uid = result[0]
     current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
     
-    # Update login time using SQLite
+    # Update login time using RDS
     update_sql = f"UPDATE {config.PROFILE_TABLE} SET LOGIN = '{current_time}' WHERE UID = '{uid}'"
     profile_connect.cursor.execute(update_sql)
-    profile_connect.commit()
+    profile_connect.conn.commit()
     profile_connect.close()
 
     notifications_url = result[2]
@@ -632,7 +632,7 @@ def get_user(uid):
         'ERROR': 'OK'
     }
 
-    profile_connect.commit()
+    profile_connect.conn.commit()
     profile_connect.close()
 
     return jsonify(user_data)
@@ -852,7 +852,7 @@ async def update_notifications_or_chats(uid, new_notifications_or_chats, column)
             update_sql = f"UPDATE {config.PROFILE_TABLE} SET {col} = '{str(path)}' WHERE UID = '{uid}'"
             
             profile_connect.cursor.execute(update_sql)
-            profile_connect.commit()
+            profile_connect.conn.commit()
 
         else:
             try:
@@ -965,7 +965,7 @@ def action():
 
         queue = 'MATCHED'
 
-    matching_connect.commit()
+    matching_connect.conn.commit()
     matching_connect.close()
 
     # Creates and destroys event loop
@@ -1004,7 +1004,7 @@ def verify_email():
     profile_connect.cursor.execute(sql_fetch, (hashed_email,))
     results = profile_connect.cursor.fetchall()
 
-    profile_connect.commit()
+    profile_connect.conn.commit()
     profile_connect.close()
 
     if len(results) > 0:
@@ -1093,7 +1093,7 @@ def update_account():
     try:
         profile_connect = SnowConnect(config.PROFILE_TABLE_WAREHOUSE, config.PROFILE_TABLE_DATABASE, config.PROFILE_TABLE_SCHEMA)
         profile_connect.cursor.execute(update_sql, values)
-        profile_connect.commit()
+        profile_connect.conn.commit()
     except Exception as e:
         log.error(f"Failed to update profile: {e}")
         return jsonify({'error': 'Database error during update'}), 500
@@ -1180,7 +1180,7 @@ def update_account():
             for idx, id_pair in enumerate(recommendations):
                 if id_pair[0] not in previous_uids:
                     matching_connect.cursor.execute(insert_sql_matching, (uid, id_pair[0], str(id_pair[1]), timestamp, timestamp, False, False, False, False, False, False, user_name, id_pair[-1]) )
-            matching_connect.commit()
+            matching_connect.conn.commit()
             matching_connect.close()
 
     return jsonify({'UID' : uid, 'error' : 'OK'}), 200
@@ -1594,7 +1594,7 @@ def get_conversation():
             """
             
             matching_connect.cursor.execute(update_sql, (conversation_sid, uid1, uid2, uid2, uid1))
-            matching_connect.commit()
+            matching_connect.conn.commit()
 
         matching_connect.close()
 

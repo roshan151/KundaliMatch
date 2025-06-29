@@ -1,0 +1,16 @@
+flask
+requests
+boto3
+snowflake-connector-python
+pillow
+geopy
+dotenv
+absl-py
+openai
+langchain
+langchain_community
+argon2-cffi
+twilio
+crewai
+pandas
+psycopg2-binary
