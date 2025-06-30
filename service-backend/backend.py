@@ -447,6 +447,10 @@ def create():
     # SORT LIST AND GET TOP TEN MATCHES
     sorted_pairs = sorted(zip(matched_uids, scores, matched_names), key=lambda x: x[1], reverse=True)
     recommendations = sorted_pairs[:config.MAX_MATCHES]
+    matches, filtered, matches_and_filtered = filter_cards(uid, recommendations)
+
+    if len(matches) > 0:
+        recommendations = matches[:]
 
     log.info(f'Recommendations: {recommendations}')
 
@@ -454,9 +458,14 @@ def create():
     # Post recommendations to matching table
 
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-    insert_sql_matching = f"INSERT INTO {config.MATCHING_TABLE} (UID1, NAME1, UID2, NAME2, SCORE, CREATED, UPDATED, ALIGN1, ALIGN2, SKIP1, SKIP2, BLOCK1, BLOCK2) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+    insert_sql_matching = f"INSERT INTO {config.MATCHING_TABLE} (UID1, NAME1, UID2, NAME2, SCORE, CREATED, UPDATED, ALIGN1, ALIGN2, SKIP1, SKIP2, BLOCK1, BLOCK2, REASON1, REASON2, FILTERED) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s %s, %s, %s, %s)"
+    
     for item in recommendations:
-        matching_connect.cursor.execute(insert_sql_matching, (uid, name, item[0], str(item[2]), str(item[1]), timestamp, timestamp, False, False, False, False, False, False ) )
+        if 'USER_REASON' in recommendations:
+            usr_reason = recommendations['USER_REASON']
+            rec_reason = recommendations['REC_REASON']
+
+        matching_connect.cursor.execute(insert_sql_matching, (uid, name, item[0], str(item[2]), str(item[1]), timestamp, timestamp, False, False, False, False, False, False, usr_reason, rec_reason, False ) )
 
     matching_connect.conn.commit()
     matching_connect.close()
@@ -692,14 +701,14 @@ def filter_cards(uid, cards, new_filter : str = None):
         for i in cards:
             if i['UID'] in matches_and_filtered['MATCHED'].keys():
                 usr_reason, rec_reason = matches[i['UID']][0], matches_and_filtered[i['UID']][1]
-                card['REASON1'] = usr_reason
-                card['REASON2'] = rec_reason
+                card['USER_REASON'] = usr_reason
+                card['REC_REASON'] = rec_reason
                 matches.append(card)
 
             elif i['UID'] in matches_and_filtered['FILTERED'].keys():
                 usr_reason, rec_reason = matches[i['UID']][0], matches_and_filtered[i['UID']][1]
-                card['REASON1'] = usr_reason
-                card['REASON2'] = rec_reason
+                card['USER_REASON'] = usr_reason
+                card['REC_REASON'] = rec_reason
                 filtered.append(card)
                 
         # if len(matches) == 0:
@@ -710,7 +719,7 @@ def filter_cards(uid, cards, new_filter : str = None):
         # Asyncronous task to add
         log.info('TODO - Asyncronously update user filter')
 
-    return matches, filtered
+    return matches, filtered, matches_and_filtered
 
 def fetch_queue(uid, queue_requested):
     matching_connect = SQLConnect()
@@ -777,13 +786,87 @@ def get_recommendations(uid):
 def get_matches(uid):
     return jsonify({'cards': fetch_queue(uid, 'MATCHES')})
 
-# TODO This generates a summary of all users in the user queues, their names, hobbies, profession, age and score
-# This will be provided to chat:initiate and chat:preference
-def summarize_queues(uid):
-    recommendations = get_recommendations(uid)
-    awaiting = get_awaiting(uid)
-    matches = get_matches(uid)
-    summary = f'User has following recommendations for potential matches'
+async def update_matching_table_with_filter(uid, matches, filtered):
+
+    matching_connect = SQLConnect()
+    current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+
+    for card in matches:
+        rec_uid = card['UID']
+        sql_fetch = f"SELECT UID1, UID2, SCORE, UPDATED, ALIGN1, ALIGN2, SKIP1, SKIP2, BLOCK1, BLOCK2, NAME1, NAME2, REASON1, REASON2, FILTERED FROM {config.MATCHING_TABLE} WHERE (UID1 = '{uid}' AND UID2 = '{rec_uid}') OR (UID1 = '{rec_uid}' AND UID2= '{uid}')"
+        matching_connect.cursor.execute(sql_fetch)
+        result = matching_connect.cursor.fetchone()
+
+        if str(result[0]) == str(uid):
+            log.info(f'First uid is user: {result[0]}')
+            primary = 0
+            rec_idx = 1
+
+        elif str(result[1]) == str(uid):
+
+            log.info(f'Second uid is user: {result[1]}')
+            primary = 1
+            rec_idx = 0
+        else:
+            log.error(f'No match for usr uid {uid}, {result[0]}, {result[1]}\n{result}')
+            return jsonify({'Error' : f'No match for usr uid {uid}, {result[0]}, {result[1]}\n{result}'}), 400
+        
+        usr_reason = f'REASON{primary+1}'
+        rec_reason = f'REASON{rec_idx+1}'
+        filtered = False
+
+        update_sql = f"UPDATE {config.MATCHING_TABLE} SET {usr_reason} = '{card['USER_REASON']}', {rec_reason} = '{card['REC_REASON']}', FILTERED = {filtered}, UPDATED = '{current_time}' WHERE UID1 = '{result[0]}' AND UID2 = '{result[1]}'"
+        matching_connect.cursor.execute(update_sql)
+
+    for card in filtered:
+        rec_uid = card['UID']
+        sql_fetch = f"SELECT UID1, UID2, SCORE, UPDATED, ALIGN1, ALIGN2, SKIP1, SKIP2, BLOCK1, BLOCK2, NAME1, NAME2, REASON1, REASON2, FILTERED FROM {config.MATCHING_TABLE} WHERE (UID1 = '{uid}' AND UID2 = '{rec_uid}') OR (UID1 = '{rec_uid}' AND UID2= '{uid}')"
+        matching_connect.cursor.execute(sql_fetch)
+        result = matching_connect.cursor.fetchone()
+
+        if str(result[0]) == str(uid):
+            log.info(f'First uid is user: {result[0]}')
+            primary = 0
+            rec_idx = 1
+
+        elif str(result[1]) == str(uid):
+
+            log.info(f'Second uid is user: {result[1]}')
+            primary = 1
+            rec_idx = 0
+        else:
+            log.error(f'No match for usr uid {uid}, {result[0]}, {result[1]}\n{result}')
+            return jsonify({'Error' : f'No match for usr uid {uid}, {result[0]}, {result[1]}\n{result}'}), 400
+        
+        usr_reason = f'REASON{primary+1}'
+        rec_reason = f'REASON{rec_idx+1}'
+        filtered = True
+
+        update_sql = f"UPDATE {config.MATCHING_TABLE} SET {usr_reason} = '{card['USER_REASON']}', {rec_reason} = '{card['REC_REASON']}', FILTERED = {filtered}, UPDATED = '{current_time}' WHERE UID1 = '{result[0]}' AND UID2 = '{result[1]}'"
+        matching_connect.cursor.execute(update_sql)
+
+
+    matching_connect.conn.commit()
+    matching_connect.close()
+
+def live_filter(uid : str, new_filter : str):
+
+    recommendations = fetch_queue(uid, 'RECOMMENDATIONS')
+    matches, filtered, matches_and_filtered = filter_cards(uid, recommendations, new_filter)
+
+    if len(matches) == 0:
+        return {'RECOMMENDATIONS' : recommendations, 'RESPONSE' : 'User filters do not satisfy any match, Please remove some filters.' }
+    else:
+        filtered_recommendations = []
+        for card in recommendations:
+            if card['recommendation_uid'] in matches_and_filtered['MATCHED'].keys():
+                card['reason'] = matches_and_filtered['MATCHED'][card['UID']][0]
+                filtered_recommendations.append(card)
+        
+        # Asyncronously update this information in the matching table
+        threading.Thread(target=run_async_task, args=(update_matching_table_with_filter(uid, matches, filtered),)).start()
+
+        return {'RECOMMENDATIONS' : filtered_recommendations, 'RESPONSE' : 'Recommendations have been updated as per your request.' }
 
 def get_encoded_images(image_paths):
     '''
@@ -990,7 +1073,8 @@ def action():
         primary = 1
         rec_idx = 0
     else:
-        log.info(f'No match for usr uid {uid}, {result[0]}, {result[1]}\n{result}')
+        log.error(f'No match for usr uid {uid}, {result[0]}, {result[1]}\n{result}')
+        return jsonify({'Error' : f'No match for usr uid {uid}, {result[0]}, {result[1]}\n{result}'}), 400
 
     recommended_user_name = result[10+rec_idx]
     user_name = result[10+primary]
@@ -1493,43 +1577,86 @@ def continue_preference():
     
     current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
 
+    # Check if user wants to exit
+    if user_input.lower() in ['bye', 'exit', 'quit', 'goodbye', 'end']:
+        endphrase_list = ['Thank you for chatting with me! This information helps us find better matches for you.', 'See you later! we will further discuss your preferences some other time.']
+        goodbye = random.choice(endphrase_list)
+
+        threading.Thread(target=run_async_task, args=(update_notifications_or_chats(uid, [{'history' : history, 'updated' : current_time}], 'PREFERENCE_CHATS'),)).start()
+        history.extend([{"role" : "user", "content": f"{user_input}"}, {"role" : "Code", "goodbye": f"{goodbye}"}])
+        
+        return jsonify({
+            "message": goodbye,
+            "history": history,
+            "continue": False
+        })
+
+    # Check if we have a system prompt already (continuing conversation)
     system = False
-    if len(history)>0:
+    if len(history) > 0:
         for item in history:
             if "role" in item and item["role"] == "system":
                 system = True
                 break
 
     if system == True:
+        # Continue existing conversation with agent capabilities
+        try:
+            assistant_msg, updated_history, cont = continue_chat(user_input, history)
 
-        if user_input.lower() in ['bye', 'exit', 'quit', 'goodbye', 'end']:
+            # Try to parse the assistant response as JSON to check if it's an agent decision
+            try:
+                agent_response = json.loads(assistant_msg)
+                if isinstance(agent_response, dict) and "mode" in agent_response:
+                    # This is an agent response
+                    if agent_response["mode"] == "FILTER" and "filter_query" in agent_response:
+                        # Apply filter using live_filter function
+                        filter_result = live_filter(uid, agent_response["filter_query"])
+                        
+                        # Update the message to include filter results
+                        response_message = agent_response.get("message", "I've applied the filter to your recommendations.")
+                        response_message += f"\n\n{filter_result['RESPONSE']}"
+                        
+                        # Add filter results to the response
+                        updated_history[-1]["content"] = response_message
+                        
+                        return jsonify({
+                            "message": response_message,
+                            "history": updated_history,
+                            "continue": cont,
+                            "filter_applied": True,
+                            "recommendations": filter_result.get('RECOMMENDATIONS', [])
+                        })
+                    else:
+                        # Chat mode - return the message from the JSON
+                        chat_message = agent_response.get("message", assistant_msg)
+                        updated_history[-1]["content"] = chat_message
+                        
+                        return jsonify({
+                            "message": chat_message,
+                            "history": updated_history,
+                            "continue": cont
+                        })
+            except (json.JSONDecodeError, KeyError):
+                # Not a JSON response, treat as regular chat
+                pass
 
-            endphrase_list = ['Thank you for chatting with me! This information helps us find better matches for you.', 'See you later! we will further discuss your hoobie some other time.']
-            goodbye = random.choice(endphrase_list)
+            if 'thank you for chatting with me' in assistant_msg.lower() or cont == False:
+                threading.Thread(target=run_async_task, args=(update_notifications_or_chats(uid, [{'history' : updated_history, 'updated' : current_time}], 'PREFERENCE_CHATS'),)).start()
+                cont = False
 
-            threading.Thread(target=run_async_task, args=(update_notifications_or_chats(uid, [{'history' : history, 'updated' : current_time}], 'PREFERENCE_CHATS'),)).start()
-            history.extend([{"role" : "user", "content": f"{user_input}"}, {"role" : "Code", "goodbye": f"{goodbye}"}])
-            # TODO Call upload to s3 function
             return jsonify({
-                "message": goodbye,
-                "history": history,
-                "continue": False
+                "message": assistant_msg,
+                "history": updated_history,
+                "continue": cont
             })
-            
-        assistant_msg, updated_history, cont = continue_chat(user_input, history)
 
-        if 'thank you for chatting with me' in assistant_msg.lower() or cont == False:
-            threading.Thread(target=run_async_task, args=(update_notifications_or_chats(uid, [{'history' : updated_history, 'updated' : current_time}], 'PREFERENCE_CHATS'),)).start()
-            cont = False
-
-        return jsonify({
-            "message": assistant_msg,
-            "history": updated_history,
-            "continue": cont
-        })
+        except Exception as e:
+            log.error(f"Error in continue_chat: {e}")
+            return jsonify({"error": str(e)}), 500
 
     else:
-
+        # Start new conversation with agent system prompt
         profile_connect = SQLConnect()
 
         columns = ['UID', 'NAME', 'DOB', 'CITY', 'COUNTRY', 'HOBBIES', 'PROFESSION', 'GENDER', 'PREFERENCE_CHATS']
@@ -1552,16 +1679,14 @@ def continue_preference():
         profile_connect.close()
 
         chats_url = result[-1]
-
         previous_chats = load_previous_chats(chats_url)
         prompts = load_prompts(config.PROMPTS_YAML)
 
-        system_prompt = prompts['preference_system_prompt'].format(name = name, previous_chats = previous_chats)
+        system_prompt = prompts['preference_system_prompt'].format(name=name, previous_chats=previous_chats)
 
-        # Start with system message if no history
+        # Start with system message
         messages = []
         messages.append(SystemMessage(content=system_prompt))
-
         messages.append(HumanMessage(content=user_input))
 
         # Get response from LLM
@@ -1572,9 +1697,61 @@ def continue_preference():
         
         assistant_msg = response.content
 
-        history = [{"role": "system", "content" : system_prompt}, {"role" : "user", "content" : user_input}, {"role" : "assistant", "content" : assistant_msg}]
+        # Try to parse agent response
+        try:
+            agent_response = json.loads(assistant_msg)
+            if isinstance(agent_response, dict) and "mode" in agent_response:
+                if agent_response["mode"] == "FILTER" and "filter_query" in agent_response:
+                    # Apply filter using live_filter function
+                    filter_result = live_filter(uid, agent_response["filter_query"])
+                    
+                    # Create response message
+                    response_message = agent_response.get("message", "I've applied the filter to your recommendations.")
+                    response_message += f"\n\n{filter_result['RESPONSE']}"
+                    
+                    history = [
+                        {"role": "system", "content": system_prompt}, 
+                        {"role": "user", "content": user_input}, 
+                        {"role": "assistant", "content": response_message}
+                    ]
+                    
+                    return jsonify({
+                        "message": response_message,
+                        "history": history,
+                        "continue": True,
+                        "filter_applied": True,
+                        "recommendations": filter_result.get('RECOMMENDATIONS', [])
+                    })
+                else:
+                    # Chat mode
+                    chat_message = agent_response.get("message", assistant_msg)
+                    history = [
+                        {"role": "system", "content": system_prompt}, 
+                        {"role": "user", "content": user_input}, 
+                        {"role": "assistant", "content": chat_message}
+                    ]
+                    
+                    return jsonify({
+                        "message": chat_message,
+                        "history": history,
+                        "continue": True
+                    })
+        except (json.JSONDecodeError, KeyError):
+            # Not a JSON response, treat as regular chat
+            pass
 
-        return jsonify({"role": "assistant", "message": assistant_msg, "history": history, "continue" : True })
+        # Fallback to regular chat
+        history = [
+            {"role": "system", "content": system_prompt}, 
+            {"role": "user", "content": user_input}, 
+            {"role": "assistant", "content": assistant_msg}
+        ]
+
+        return jsonify({
+            "message": assistant_msg,
+            "history": history,
+            "continue": True
+        })
 
 @app.route('/e2echat:token/<string:uid>', methods=['GET'])
 def generate_chat_token(uid):
