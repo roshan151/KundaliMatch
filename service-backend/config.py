@@ -11,31 +11,14 @@ class Config:
     MAX_DESTINY_CHAT = 15
     MAX_NOTIFICATIONS = 50
 
-    # Snowflake Configuration
+    # SQLite Configuration
     PROFILE_TABLE = "PROFILE_DB"
-    PROFILE_TABLE_SCHEMA = "PUBLIC"
-    PROFILE_TABLE_DATABASE = "LOVEBHAGYA"
-    PROFILE_TABLE_WAREHOUSE = "COMPUTE_WH"
     MATCHING_TABLE = "MATCHING_TABLE"
-    MATCHING_TABLE_SCHEMA = "PUBLIC"
-    MATCHING_TABLE_DATABASE = "LOVEBHAGYA"
-    MATCHING_TABLE_WAREHOUSE = "COMPUTE_WH"
-    SNOWFLAKE_USERNAME = 'TeamKreative'
-    SNOWFLAKE_ACCOUNT_ID = 'jkfvgpq-bk60648'
-
-
-    # AWS RDS Configuration
-    RDS_DB_NAME = 'AlignedDB'
 
     # AWS Configuration
     BUCKET = 'match-bucket-2025'
-    REGION = 'us-east-2'
+    REGION = 'us-east-1'
     aws_secrets_group = 'aligned-app-secrets'
-    #rds_secrets_group = 'AlignedDB-RDS-Secrets'
-
-    # RDS TABLE NAMES
-    RDS_PROFILE_TABLE = 'PROFILE_INFO_TABLE'
-    RDS_MATCHING_TABLE = 'MATCH_DETAILS_TABLE'
     
     # Service Configuration
     KUNDALI_SERVICE_URL = "http://kundali-service"

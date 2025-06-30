@@ -1,108 +1,104 @@
 import requests
 import json
-import snowflake.connector
-from config import (
-    SNOWFLAKE_USER, SNOWFLAKE_PASSWORD,
-    SNOWFLAKE_ACCOUNT, SNOWFLAKE_DATABASE,
-    SNOWFLAKE_SCHEMA
-)
+from sqlite_adapter import SQLConnect
 
-BASE_URL = "http://localhost:8080"
+BASE_URL = "http://localhost:8040"
 
-# Get test users from Snowflake
+# Get test users from SQLite
 def fetch_test_data():
-    conn = snowflake.connector.connect(
-        user=SNOWFLAKE_USER,
-        password=SNOWFLAKE_PASSWORD,
-        account=SNOWFLAKE_ACCOUNT,
-        database=SNOWFLAKE_DATABASE,
-        schema=SNOWFLAKE_SCHEMA
-    )
-    cursor = conn.cursor()
-    cursor.execute("SELECT uid, email, password FROM test_users")
-    rows = cursor.fetchall()
-    cursor.close()
+    conn = SQLConnect()
+    conn.cursor.execute("SELECT UID, EMAIL, PASSWORD FROM PROFILE_DB LIMIT 5")
+    rows = conn.cursor.fetchall()
     conn.close()
-    return [{"uid": uid, "email": email, "password": pwd} for uid, email, pwd in rows]
+    
+    # Convert to list of dictionaries for easier handling
+    test_users = []
+    for row in rows:
+        test_users.append({
+            "uid": row.get("UID") if isinstance(row, dict) else row[0],
+            "email": row.get("EMAIL") if isinstance(row, dict) else row[1], 
+            "password": row.get("PASSWORD") if isinstance(row, dict) else row[2]
+        })
+    return test_users
 
 def run_tests():
-    users = fetch_test_data()
-    for user in users:
-        print(f"\nTesting for user: {user['email']}")
+    print("Fetching test data from SQLite...")
+    try:
+        users = fetch_test_data()
+        if not users:
+            print("No test users found in database. Please create some test users first.")
+            return
+            
+        for user in users:
+            print(f"\nTesting for user: {user['email']}")
 
-        endpoints = [
-            {
-                "desc": "/account:update",
-                "method": "POST",
-                "url": f"{BASE_URL}/account:update",
-                "data": {"uid": user["uid"], "password": user["password"]}
-            },
-            {
-                "desc": "/account:login",
-                "method": "POST",
-                "url": f"{BASE_URL}/account:login",
-                "data": {"email": user["email"], "password": user["password"]}
-            },
-            {
-                "desc": "/account:create",
-                "method": "POST",
-                "url": f"{BASE_URL}/account:create",
-                "data": {"email": user["email"], "password": user["password"]}
-            },
-            {
-                "desc": "/verify:email",
-                "method": "POST",
-                "url": f"{BASE_URL}/verify:email",
-                "data": {"email": user["email"]}
-            },
-            {
-                "desc": "/get:profile/<uid>",
-                "method": "GET",
-                "url": f"{BASE_URL}/get:profile/{user['uid']}"
-            },
-            {
-                "desc": "/chat:initiate/<uid>",
-                "method": "GET",
-                "url": f"{BASE_URL}/chat:initiate/{user['uid']}"
-            },
-            {
-                "desc": "/account:action",
-                "method": "POST",
-                "url": f"{BASE_URL}/account:action",
-                "data": {"uid": user["uid"], "action": "some_action"}
-            },
-            {
-                "desc": "/find:profiles",
-                "method": "POST",
-                "url": f"{BASE_URL}/find:profiles",
-                "data": {"criteria": {"interests": ["test"]}}
-            },
-            {
-                "desc": "/chat:continue",
-                "method": "POST",
-                "url": f"{BASE_URL}/chat:continue",
-                "data": {"uid": user["uid"], "message": "Hello"}
-            },
-            {
-                "desc": "/twillio:token",
-                "method": "POST",
-                "url": f"{BASE_URL}/twillio:token",
-                "data": {"uid": user["uid"]}
-            }
-        ]
+            endpoints = [
+                {
+                    "desc": "/account:login",
+                    "method": "POST",
+                    "url": f"{BASE_URL}/account:login",
+                    "data": {"email": user["email"], "password": user["password"]}
+                },
+                {
+                    "desc": "/verify:email",  
+                    "method": "POST",
+                    "url": f"{BASE_URL}/verify:email",
+                    "data": {"email": user["email"]}
+                },
+                {
+                    "desc": "/get:profile/<uid>",
+                    "method": "GET", 
+                    "url": f"{BASE_URL}/get:profile/{user['uid']}"
+                },
+                {
+                    "desc": "/get:user/<uid>",
+                    "method": "GET",
+                    "url": f"{BASE_URL}/get:user/{user['uid']}"
+                },
+                {
+                    "desc": "/chat:initiate/<uid>",
+                    "method": "GET",
+                    "url": f"{BASE_URL}/chat:initiate/{user['uid']}"
+                },
+                {
+                    "desc": "/get:recommendations/<uid>",
+                    "method": "GET",
+                    "url": f"{BASE_URL}/get:recommendations/{user['uid']}"
+                },
+                {
+                    "desc": "/get:matches/<uid>",
+                    "method": "GET", 
+                    "url": f"{BASE_URL}/get:matches/{user['uid']}"
+                },
+                {
+                    "desc": "/get:awaiting/<uid>",
+                    "method": "GET",
+                    "url": f"{BASE_URL}/get:awaiting/{user['uid']}"
+                }
+            ]
 
-        for ep in endpoints:
-            print(f"Testing {ep['desc']}")
-            try:
-                if ep["method"] == "POST":
-                    response = requests.post(ep["url"], files={"metadata": (None, json.dumps(ep["data"]))})
-                else:
-                    response = requests.get(ep["url"])
+            for ep in endpoints:
+                print(f"Testing {ep['desc']}")
+                try:
+                    if ep["method"] == "POST":
+                        response = requests.post(ep["url"], json=ep["data"])
+                    else:
+                        response = requests.get(ep["url"])
 
-                print(f"Status: {response.status_code}")
-                print(f"Response: {response.text}\n")
-            except Exception as e:
-                print(f"Error testing {ep['desc']}: {str(e)}")
+                    print(f"Status: {response.status_code}")
+                    if response.status_code == 200:
+                        print("✓ Success")
+                    else:
+                        print(f"✗ Response: {response.text}")
+                    print()
+                except Exception as e:
+                    print(f"✗ Error testing {ep['desc']}: {str(e)}")
+                    
+    except Exception as e:
+        print(f"Error fetching test data: {str(e)}")
+        print("Make sure SQLite service is running and database is initialized.")
 
 if __name__ == "__main__":
+    print("Backend Endpoint Testing with SQLite")
+    print("=" * 40)
     run_tests()

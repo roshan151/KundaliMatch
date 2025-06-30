@@ -4,44 +4,38 @@ import logging as log
 import json
 
 class SQLConnect:
-    """SQLite adapter that provides SQL database connectivity"""
+    """Simplified SQLite adapter for database connectivity"""
     
-    def __init__(self, warehouse=None, database=None, schema=None):
+    def __init__(self):
         # SQLite service endpoint
         self.sqlite_service_url = f'{config.SQL_SERVICE_URL}:{config.SQL_SERVICE_PORT}'
         
-        # Store connection info for logging (not used in SQLite)
-        self.warehouse = warehouse
-        self.database = database
-        self.schema = schema
-        
-        # Initialize cursor-like object
+        # Initialize cursor and connection objects
         self.cursor = SQLiteCursor(self.sqlite_service_url)
         self.conn = SQLiteConnection(self.sqlite_service_url)
         
-        log.info(f"SQLite connection initialized (replacing Snowflake: warehouse={warehouse}, database={database}, schema={schema})")
+        log.info("SQLite connection initialized")
 
     def close(self):
         """Close the connection (no-op for HTTP-based SQLite service)"""
         log.info("SQLite connection closed")
 
 class SQLiteConnection:
-    """Mimics the connection object interface"""
+    """SQLite connection object"""
     
     def __init__(self, service_url):
         self.service_url = service_url
         
     def commit(self):
-        """Commit transaction - for SQLite service, this is handled per query"""
-        # SQLite service commits automatically for each query
+        """Commit transaction - handled automatically by SQLite service"""
         pass
         
     def cursor(self):
-        """Return cursor object - not typically used in our pattern"""
+        """Return cursor object"""
         return SQLiteCursor(self.service_url)
 
 class SQLiteCursor:
-    """Mimics the cursor object interface from Snowflake"""
+    """SQLite cursor for executing queries"""
     
     def __init__(self, service_url):
         self.service_url = service_url
@@ -50,19 +44,10 @@ class SQLiteCursor:
     def execute(self, query, params=None):
         """Execute SQL query through the SQLite HTTP service"""
         try:
-            # Convert Snowflake-style parameterized queries to SQLite style
-            if params:
-                # Convert %s to ? for SQLite
-                sqlite_query = query.replace('%s', '?')
-            else:
-                sqlite_query = query
-            
             # Prepare request payload
-            payload = {
-                'query': sqlite_query
-            }
+            payload = {'query': query}
             if params:
-                payload['params'] = list(params) if isinstance(params, tuple) else params
+                payload['params'] = list(params) if isinstance(params, (tuple, list)) else params
             
             # Make HTTP request to SQLite service
             response = requests.post(f"{self.service_url}/execute", json=payload)
@@ -90,9 +75,7 @@ class SQLiteCursor:
         """Fetch one row from the last executed query"""
         if self.last_results and len(self.last_results) > 0:
             # Return first row and remove it from results
-            row_dict = self.last_results.pop(0)
-            # Convert dictionary to tuple for Snowflake compatibility
-            return tuple(row_dict.values()) if row_dict else None
+            return self.last_results.pop(0)
         return None
     
     def fetchall(self):
@@ -100,8 +83,7 @@ class SQLiteCursor:
         if self.last_results:
             results = self.last_results.copy()
             self.last_results = []  # Clear results after fetching
-            # Convert dictionaries to tuples for Snowflake compatibility
-            return [tuple(row.values()) if row else None for row in results]
+            return results
         return []
     
     def close(self):
