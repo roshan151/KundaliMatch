@@ -10,3 +10,6 @@ docker-compose.yml
 docker-compose-amd64.yml
 scratchpad.ipynb
 *.csv
+docs/response.txt
+docs/s3
+service-kundali/kundali.tar
