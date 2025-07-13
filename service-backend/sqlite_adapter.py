@@ -6,9 +6,9 @@ import json
 class SQLConnect:
     """Simplified SQLite adapter for database connectivity"""
     
-    def __init__(self):
+    def __init__(self, url, port):
         # SQLite service endpoint
-        self.sqlite_service_url = f'{config.SQL_SERVICE_URL}:{config.SQL_SERVICE_PORT}'
+        self.sqlite_service_url = f'{url}:{port}'
         
         # Initialize cursor and connection objects
         self.cursor = SQLiteCursor(self.sqlite_service_url)

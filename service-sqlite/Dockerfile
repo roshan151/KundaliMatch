@@ -15,8 +15,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
-# Create directory for database
+# Create directory for database and set as volume
 RUN mkdir -p /app/data
+VOLUME ["/app/data"]
 
 # Expose port
 EXPOSE 8030
