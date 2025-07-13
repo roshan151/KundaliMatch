@@ -21,3 +21,12 @@ services:
     build: ./service-sqlite
     ports:
       - 8030:8030
+    volumes:
+      - sqlite_data:/app/data
+    environment:
+      - FLASK_ENV=production
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+
+volumes:
+  sqlite_data:

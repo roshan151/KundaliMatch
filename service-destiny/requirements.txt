@@ -1,5 +1,0 @@
-crewai
-openai
-ipywidgets
-langchain
-langchain_community

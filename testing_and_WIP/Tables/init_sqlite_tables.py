@@ -57,8 +57,8 @@ def init_tables():
         IMAGES TEXT,
         CREATED TEXT,
         LOGIN TEXT,
+        FILTERS TEXT,
         NOTIFICATIONS TEXT,
-        DESTINY_CHATS TEXT,
         INITIATE_CHATS TEXT,
         PREFERENCE_CHATS TEXT
     )

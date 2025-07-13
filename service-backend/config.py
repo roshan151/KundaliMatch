@@ -16,7 +16,7 @@ class Config:
     MATCHING_TABLE = "MATCHING_TABLE"
 
     # AWS Configuration
-    BUCKET = 'match-bucket-2025'
+    BUCKET = 'aligned-data'
     REGION = 'us-east-1'
     aws_secrets_group = 'aligned-app-secrets'
     
@@ -24,7 +24,7 @@ class Config:
     KUNDALI_SERVICE_URL = "http://kundali-service"
     KUNDALI_SERVICE_PORT = "8000"
 
-    SQL_SERVICE_URL = "http://sql-service"
+    SQL_SERVICE_URL = "http://sql-service" #"http://localhost"#
     SQL_SERVICE_PORT = "8030"
     PROMPTS_YAML = 'prompts.yaml'
     OPENAI_MODEL_NAME = "gpt-4o-mini"

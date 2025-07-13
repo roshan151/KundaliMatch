@@ -21,12 +21,18 @@ app = Flask(__name__)
 CORS(app)  # Enable CORS for all domains
 
 # Configuration
-DB_PATH = 'sqlite_service.db'
+DB_PATH = '/app/data/sqlite_service.db'
 PORT = 8030
 
 def init_database():
     """Initialize the SQLite database with some basic tables if it doesn't exist."""
     try:
+        # Ensure data directory exists
+        data_dir = os.path.dirname(DB_PATH)
+        if not os.path.exists(data_dir):
+            os.makedirs(data_dir)
+            logger.info(f"Created data directory: {data_dir}")
+        
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         

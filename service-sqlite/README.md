@@ -16,9 +16,39 @@ A Flask-based HTTP service that provides a REST API for executing SQLite command
 
 ### Using Docker (Recommended)
 
-1. Build and run the service:
+1. Build and run the service with persistent storage:
 ```bash
 docker-compose up --build
+```
+
+The service uses Docker volumes to persist the SQLite database even when containers are stopped or recreated.
+
+### Alternative Docker Methods
+
+**Option 1: Using Named Volume (Recommended)**
+```bash
+# Create named volume
+docker volume create sqlite_data
+
+# Run with named volume
+docker run -d \
+  --name sqlite-service \
+  -p 8030:8030 \
+  -v sqlite_data:/app/data \
+  sqlite-service
+```
+
+**Option 2: Using Bind Mount**
+```bash
+# Create local data directory
+mkdir -p ./data
+
+# Run with bind mount
+docker run -d \
+  --name sqlite-service \
+  -p 8030:8030 \
+  -v $(pwd)/data:/app/data \
+  sqlite-service
 ```
 
 ### Manual Installation
@@ -135,10 +165,41 @@ The service initializes with a `sample_data` table containing:
 - `value` (TEXT)  
 - `created_at` (TIMESTAMP)
 
+## Data Persistence
+
+The SQLite database is stored in `/app/data/sqlite_service.db` inside the container. To persist data across container restarts:
+
+### Using Docker Compose (Recommended)
+The provided `docker-compose.yml` automatically creates a named volume `sqlite_data` that persists your database.
+
+### Manual Volume Management
+```bash
+# List volumes
+docker volume ls
+
+# Inspect volume details
+docker volume inspect sqlite_data
+
+# Remove volume (⚠️ This deletes all data!)
+docker volume rm sqlite_data
+```
+
+### Backup and Restore
+```bash
+# Create backup via API
+curl -X POST http://localhost:8030/backup
+
+# Manual backup (copy from volume)
+docker run --rm -v sqlite_data:/data -v $(pwd):/backup alpine cp /data/sqlite_service.db /backup/backup.db
+
+# Restore from backup
+docker run --rm -v sqlite_data:/data -v $(pwd):/backup alpine cp /backup/backup.db /data/sqlite_service.db
+```
+
 ## Configuration
 
 - **Port:** 8030 (configurable in `sqlite_service.py`)
-- **Database:** `sqlite_service.db` (created automatically)
+- **Database:** `/app/data/sqlite_service.db` (created automatically with persistent storage)
 - **Host:** `0.0.0.0` (accepts connections from any IP)
 
 ## Security Notes

@@ -23,13 +23,16 @@ from twilio.jwt.access_token import AccessToken
 from twilio.rest import Client
 from botocore.exceptions import NoCredentialsError
 from geopy.geocoders import Nominatim
-from langchain.chat_models import ChatOpenAI
-from langchain.schema import HumanMessage, AIMessage, SystemMessage
+
+from typing import Dict, List
 from flask import Flask, request, jsonify, make_response
 from urllib.parse import urlparse
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 from cryptography.fernet import Fernet
+
+
+from destiny_agent import chat_flow, FilterAgent
 
 # Custom components
 from config import config
@@ -39,7 +42,6 @@ log.basicConfig(
     format='%(levelname)s [%(filename)s:%(lineno)d] %(message)s',
     level=log.INFO
 )
-
 
 # Initialize Argon2 password hasher
 ph = PasswordHasher(
@@ -54,26 +56,39 @@ BUCKET_NAME = config.BUCKET
 REGION = config.REGION
 CURRENT_DIR = os.getcwd()
 
+# Get secrets from AWS Secrets manager
+# def get_secrets(secret_name):
+#     """Load sensitive secrets from AWS Secrets Manager using IAM credentials"""
+
+#     # Create a boto3 session using IAM credentials
+#     session = boto3.session.Session(
+#         region_name=REGION
+#     )
+
+#     client = session.client(service_name='secretsmanager')
+
+#     try:
+#         get_secret_value_response = client.get_secret_value(
+#             SecretId=secret_name
+#         )
+#     except Exception as e:
+#         log.error(f"Error getting secrets: {e}")
+#         raise e
+#     else:
+#         if 'SecretString' in get_secret_value_response:
+#             re
+# Get secrets from local .env file
 def get_secrets(secret_name):
-    """Load sensitive secrets from AWS Secrets Manager using IAM credentials"""
+    """Load sensitive secrets from local .env file"""
+    from dotenv import load_dotenv
+    load_dotenv()
+    keys = os.environ.keys()
+    secrets = {}
+    for key in keys:
+        secrets[key] = os.getenv(key)
 
-    # Create a boto3 session using IAM credentials
-    session = boto3.session.Session(
-        region_name=REGION
-    )
+    return secrets
 
-    client = session.client(service_name='secretsmanager')
-
-    try:
-        get_secret_value_response = client.get_secret_value(
-            SecretId=secret_name
-        )
-    except Exception as e:
-        log.error(f"Error getting secrets: {e}")
-        raise e
-    else:
-        if 'SecretString' in get_secret_value_response:
-            return json.loads(get_secret_value_response['SecretString'])
 
 # Load secrets
 secrets = get_secrets(config.aws_secrets_group)
@@ -85,6 +100,7 @@ s3 = boto3.client(
     aws_secret_access_key=secrets['S3_ACCESS_KEY']
 )
 
+filter_agent = FilterAgent(openai_api_key = secrets['OPENAI_API_KEY'], log = log)
 
 # Initialize encryption key
 def get_encryption_key():
@@ -177,13 +193,6 @@ ph = PasswordHasher(
     salt_len=16         # Length of the salt in bytes
 )
 
-# Setup your LLM (choose gpt-4o / gpt-3.5-turbo etc.)
-llm = ChatOpenAI(
-    model=config.OPENAI_MODEL_NAME, 
-    temperature=0.7,
-    openai_api_key=secrets['OPENAI_API_KEY']
-)
-
 def run_async_task(coro):
     asyncio.run(coro)
 
@@ -257,14 +266,14 @@ def get_personal_score(hobbies, row):
 
 def compute_score(user_1 : list, user_2 : list):
     input_kundali = {
-            'DOB1' : user_1[1],
-            'DOB2' : user_2[1],
-            'TOB1' : user_1[2].strftime("%H:%M"), 
-            'TOB2' : user_2[2].strftime("%H:%M"),
-            'LAT1' : user_1[3],
-            'LAT2' : user_2[3],
-            'LONG1' : user_1[4],
-            'LONG2' : user_2[4]
+            'DOB1' : user_1['DOB'],
+            'DOB2' : user_2['DOB'],
+            'TOB1' : user_1['TOB'], 
+            'TOB2' : user_2['TOB'],
+            'LAT1' : user_1['LAT'],
+            'LAT2' : user_2['LAT'],
+            'LONG1' : user_1['LONG'],
+            'LONG2' : user_2['LONG']
         }
 
     kundali_score = None
@@ -290,7 +299,7 @@ def compute_score(user_1 : list, user_2 : list):
         kundali_score = get_kundali_score()
 
     # TODO - Personal score scoring through hobbies
-    personal_score = get_personal_score(user_1[5], user_2[5])
+    personal_score = get_personal_score(user_1['HOBBIES'], user_2['HOBBIES'])
 
     return round(((kundali_score/config.TOTAL_GUN)*config.KUNDALI_WEIGHT + personal_score*config.PERSONAL_WEIGHT)*config.SCORE_OUT_OF, 1)
 
@@ -352,9 +361,9 @@ def create():
 
     log.info(f'Profile Images: {len(profile_images)}')
     # Setup SQLite connection
-    profile_connect = SQLConnect()
+    profile_connect = SQLConnect(url = config.SQL_SERVICE_URL, port = config.SQL_SERVICE_PORT)
     
-    insert_sql = f"INSERT INTO {config.PROFILE_TABLE} (UID, PASSWORD, NAME, PHONE, EMAIL, EMAIL_HASH, CITY, COUNTRY, PROFESSION, BIRTH_CITY, BIRTH_COUNTRY, DOB, TOB, GENDER, HOBBIES, LAT, LONG, IMAGES, CREATED, LOGIN) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+    insert_sql = f"INSERT INTO {config.PROFILE_TABLE} (UID, PASSWORD, NAME, PHONE, EMAIL, EMAIL_HASH, CITY, COUNTRY, PROFESSION, BIRTH_CITY, BIRTH_COUNTRY, DOB, TOB, GENDER, HOBBIES, LAT, LONG, IMAGES, CREATED, LOGIN, FILTERS) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     uid = str(uuid4())
     
     # Encrypt sensitive data
@@ -409,68 +418,114 @@ def create():
     else:
         hobbies = ''
 
-    profile_connect.cursor.execute(insert_sql, (uid, password, name, encrypted_phone, encrypted_email, hashed_email, city, country, profession, birth_city, birth_country, dob, tob, gender, hobbies, lat, long, images, timestamp, timestamp))
+    profile_connect.cursor.execute(insert_sql, (uid, password, name, encrypted_phone, encrypted_email, hashed_email, city, country, profession, birth_city, birth_country, dob, tob, gender, hobbies, lat, long, images, timestamp, timestamp, ''))
     profile_connect.conn.commit()
+
+    # Asynchronous task to identify matches for user and populate to matching table.
+    threading.Thread(target=run_async_task, args=(populate_matches(uid, gender),)).start()
     
+    return {'UID' : uid}, None
+
+async def populate_matches(uid, gender):
+    '''
+    Find matches for the user, compute scores and populate top n matches to matching table.
+    '''
     if gender == 'male':
         fetch = 'female'
     else:
         fetch = 'male'
 
     # Select self user data using RDS
+    profile_connect = SQLConnect(url = config.SQL_SERVICE_URL, port = config.SQL_SERVICE_PORT)
 
-    select_self = F"SELECT UID, DOB, TOB, LAT, LONG, HOBBIES FROM {config.PROFILE_TABLE} WHERE UID = '{uid}'"
+    select_self = F"SELECT UID, NAME, DOB, TOB, LAT, LONG, HOBBIES FROM {config.PROFILE_TABLE} WHERE UID = '{uid}'"
     profile_connect.cursor.execute(select_self)
 
     # Fetch all results
-    results = profile_connect.cursor.fetchall()
-    self_result = results[-1]
+    self_result = profile_connect.cursor.fetchone()
+    name = self_result["NAME"]
     
     select_sql = f"SELECT UID, DOB, TOB, LAT, LONG, HOBBIES, NAME FROM {config.PROFILE_TABLE} WHERE GENDER = '{fetch}'"
+    log.info(f'Executing query: {select_sql}')
     profile_connect.cursor.execute(select_sql)
     results = profile_connect.cursor.fetchall()
     profile_connect.close()
 
-    matched_uids, matched_names = [], []
-    scores = []
+    if len(results) > 0:
+        log.info(f'Number of matches: {len(results)}')
 
-    for row in results:
-        #kundali_obj = Kundali(dob, row['DOB'], tob, row["TOB"], lat, row["LAT"], long, row["LONG"])
-        #kundali_score = kundali_obj.get_guna_score()/config.TOTAL_GUN
+        matched_uids, matched_names, scores = [], [], []
 
-        matched_uids.append(row[0])
-        matched_names.append(row[-1])
-        score = compute_score(self_result, row)
-        scores.append(score)
+        for row in results:
+            #kundali_obj = Kundali(dob, row['DOB'], tob, row["TOB"], lat, row["LAT"], long, row["LONG"])
+            #kundali_score = kundali_obj.get_guna_score()/config.TOTAL_GUN
+
+            matched_uids.append(row['UID'])
+            matched_names.append(row['NAME'])
+            score = compute_score(self_result, row)
+            scores.append(score)
 
 
-    # SORT LIST AND GET TOP TEN MATCHES
-    sorted_pairs = sorted(zip(matched_uids, scores, matched_names), key=lambda x: x[1], reverse=True)
-    recommendations = sorted_pairs[:config.MAX_MATCHES]
-    matches, filtered, matches_and_filtered = filter_cards(uid, recommendations)
+        # SORT LIST AND GET TOP TEN MATCHES
+        sorted_pairs = sorted(zip(matched_uids, scores, matched_names), key=lambda x: x[1], reverse=True)
+        recommendation_zip = sorted_pairs[:config.MAX_MATCHES]
 
-    if len(matches) > 0:
-        recommendations = matches[:]
+        recommendation_cards = []
+        for item in recommendation_zip:
+            rec_uid = item[0]
+            score = item[1]
+            rec_name = item[2]
+            recommendation_cards.append({
+                'recommendation_uid': rec_uid,
+                'name': rec_name,
+                'score': score,
+                'reason':  '', 
+                'chat_enabled': False,
+                'user_align': False,
+                'blocked_by_match' : False, 
+                'blocked_by_user' : False,
+                'rec_idx' : 1,
+                'usr_idx' : 0
+            })
 
-    log.info(f'Recommendations: {recommendations}')
+        matches, filtered, matches_and_filtered = filter_cards(uid, recommendation_cards)
 
-    matching_connect = SQLConnect()
-    # Post recommendations to matching table
+        if len(matches) > 0:
 
-    timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-    insert_sql_matching = f"INSERT INTO {config.MATCHING_TABLE} (UID1, NAME1, UID2, NAME2, SCORE, CREATED, UPDATED, ALIGN1, ALIGN2, SKIP1, SKIP2, BLOCK1, BLOCK2, REASON1, REASON2, FILTERED) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s %s, %s, %s, %s)"
-    
-    for item in recommendations:
-        if 'USER_REASON' in recommendations:
-            usr_reason = recommendations['USER_REASON']
-            rec_reason = recommendations['REC_REASON']
+            log.info(f'Recommendations: {matches}')
 
-        matching_connect.cursor.execute(insert_sql_matching, (uid, name, item[0], str(item[2]), str(item[1]), timestamp, timestamp, False, False, False, False, False, False, usr_reason, rec_reason, False ) )
+            matching_connect = SQLConnect(url = config.SQL_SERVICE_URL, port = config.SQL_SERVICE_PORT)
+            # Post recommendations to matching table
 
-    matching_connect.conn.commit()
-    matching_connect.close()
+            timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+            insert_sql_matching = f"INSERT INTO {config.MATCHING_TABLE} (UID1, NAME1, UID2, NAME2, SCORE, CREATED, UPDATED, ALIGN1, ALIGN2, SKIP1, SKIP2, BLOCK1, BLOCK2, REASON1, REASON2, FILTERED) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            
+            for item in matches:
+                if 'USER_REASON' in item:
+                    usr_reason = item['USER_REASON']
+                    rec_reason = item['REC_REASON']
+                else:
+                    usr_reason = 'Not Present'
+                    rec_reason = 'Not Present'
 
-    return {'UID' : uid}, None
+                matching_connect.cursor.execute(insert_sql_matching, (uid, name, item['UID'], str(item['NAME']), str(item['RECOMMENDATION_SCORE']), timestamp, timestamp, False, False, False, False, False, False, usr_reason, rec_reason, False ) )
+            
+            for item in filtered:
+                if 'USER_REASON' in item:
+                    usr_reason = item['USER_REASON']
+                    rec_reason = item['REC_REASON']
+                else:
+                    usr_reason = 'Not Present'
+                    rec_reason = 'Not Present'
+
+                matching_connect.cursor.execute(insert_sql_matching, (uid, name, item['UID'], str(item['NAME']), str(item['RECOMMENDATION_SCORE']), timestamp, timestamp, False, False, False, False, False, False, usr_reason, rec_reason, True ) )
+
+            matching_connect.conn.commit()
+            matching_connect.close()
+        else:
+            log.info('Filter rejected all cards')
+
+        
 
 def ensure_datetime(value):
     if isinstance(value, datetime):
@@ -530,7 +585,7 @@ def login():
         return jsonify({'error': 'Invalid email format'}), 400
 
     # Setup SQLite connection
-    profile_connect = SQLConnect()
+    profile_connect = SQLConnect(url = config.SQL_SERVICE_URL, port = config.SQL_SERVICE_PORT)
 
     
     # Use SHA256 hash for email lookup - compute hash in Python for SQLite compatibility
@@ -544,10 +599,10 @@ def login():
     if not result:
         return jsonify({'LOGIN': 'UNSUCCESSFUL', 'ERROR': 'Email not found.'})
     
-    if not verify_password(result[1], password):
+    if not verify_password(result['UID'], password):
         return jsonify({'LOGIN': 'UNSUCCESSFUL', 'ERROR': 'Password is Incorrect.'})
 
-    uid = result[0]
+    uid = result['UID']
     current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
     
     # Update login time using RDS
@@ -556,7 +611,7 @@ def login():
     profile_connect.conn.commit()
     profile_connect.close()
 
-    notifications_url = result[2]
+    notifications_url = result['NOTIFICATIONS']
     if notifications_url:
         try:
             key = urlparse(notifications_url).path.lstrip('/')
@@ -573,7 +628,7 @@ def login():
 
     # Ensure both are datetime objects
    
-    last_login = result[-1]
+    last_login = result['LOGIN']
     if isinstance(last_login, str):
         last_login = datetime.fromisoformat(last_login)
 
@@ -599,8 +654,8 @@ def login():
         
 
     # Decrypt email and phone for response
-    decrypted_email = decrypt_sensitive_data(result[3])
-    decrypted_phone = decrypt_sensitive_data(result[4])
+    decrypted_email = decrypt_sensitive_data(result['EMAIL'])
+    decrypted_phone = decrypt_sensitive_data(result['PHONE'])
 
     return jsonify({
         'LOGIN': 'SUCCESSFUL', 
@@ -612,54 +667,73 @@ def login():
         'ERROR': 'OK'
     })
 
-@app.route('/get:user/<uid>', methods=['GET'])
-def get_user(uid):
+def get_user_data(uid):
+    """
+    Internal function to get raw user data without Flask response wrapper.
+    Used for internal processing where raw data is needed.
+    """
     # Setup SQLite connection
-    profile_connect = SQLConnect()
+    profile_connect = SQLConnect(url = config.SQL_SERVICE_URL, port = config.SQL_SERVICE_PORT)
     select_sql = f"SELECT NAME, DOB, CITY, COUNTRY, IMAGES, HOBBIES, PROFESSION, GENDER, NOTIFICATIONS, EMAIL, PHONE, FILTERS FROM {config.PROFILE_TABLE} WHERE UID = '{uid}'"
     profile_connect.cursor.execute(select_sql)
     result = profile_connect.cursor.fetchone()
 
     if not result:
-        return jsonify({'error': 'User not found'}), 404
+        profile_connect.close()
+        return None
 
-    image_path_list = [i.strip() for i in str(result[4]).split(',')]
+    image_path_list = [i.strip() for i in str(result['IMAGES']).split(',')]
     user_data = {
         'UID': uid,
-        'NAME': result[0],
-        'DOB': result[1],
-        'CITY': result[2],
-        'COUNTRY': result[3],
+        'NAME': result['NAME'],
+        'DOB': result['DOB'],
+        'CITY': result['CITY'],
+        'COUNTRY': result['COUNTRY'],
         'IMAGES': image_path_list,
-        'HOBBIES': result[5],
-        'PROFESSION': result[6],
-        'GENDER': result[7],
-        'FILTERS' : result[-1],
-        'EMAIL': decrypt_sensitive_data( result[9] ),
-        'PHONE' : decrypt_sensitive_data( result[10] ),
+        'HOBBIES': result['HOBBIES'],
+        'PROFESSION': result['PROFESSION'],
+        'GENDER': result['GENDER'],
+        'FILTERS' : result['FILTERS'],
+        'EMAIL': decrypt_sensitive_data( result['EMAIL'] ),
+        'PHONE' : decrypt_sensitive_data( result['PHONE'] ),
         'ERROR': 'OK'
     }
 
     profile_connect.conn.commit()
     profile_connect.close()
 
+    return user_data
+
+@app.route('/get:user/<uid>', methods=['GET'])
+def get_user(uid):
+    """
+    Flask route to get user data. Returns JSON response for API calls.
+    """
+    user_data = get_user_data(uid)
+    
+    if not user_data:
+        return jsonify({'error': 'User not found'}), 404
+    
     return jsonify(user_data)
 
-# TODO - Verify llm response is a json and extracted cards has all details
-def verify_cards(response_json):
-    return response_json
 
 # TODO - Use LLM to filter cards 
 # Provide saved filters of user (not more than 5) - User can ask LLM to edit these filters
 # LLM analyzes all cards together, thios gives it better context of each card
 # ALso ask why is a good match
-def filter_cards(uid, cards, new_filter : str = None):
+def filter_cards(uid, recommendation_cards, new_filter : str = None, filter = True):
     
-    user_details = get_user(uid)
-    user_filters = user_details['FILTERS']
+    user_details = get_user_data(uid)
+    if not user_details:
+        log.error(f"User not found: {uid}")
+        return jsonify({'error': 'User not found'}), 404
+    
+    user_filters_str = user_details['FILTERS']
 
-    if isinstance(user_filters, str):
-        user_filters = user_filters.split(',')
+    if isinstance(user_filters_str, str):
+        user_filters = user_filters_str.split(',')
+    else:
+        user_filters = []
 
     user_details.pop('EMAIL', None)
     user_details.pop('PHONE', None)
@@ -670,76 +744,109 @@ def filter_cards(uid, cards, new_filter : str = None):
     if new_filter and isinstance(new_filter, str) and len(new_filter) > 0:
         user_filters.append(new_filter)
 
-    if isinstance(user_filters, list) and len(user_filters) > 0:
-        enhanced_cards = []
-        for card in cards:
-            card_details = get_user(card['recommendation_uid'])
-            card_details.pop('EMAIL', None)
-            card_details.pop('PHONE', None)
-            card_details.pop('ERROR', None)
-            card_details.pop('IMAGES', None)
-            card_details['RECOMMENDATION_SCORE'] = card['score']
+    log.info('Enhancing cards to populate.')
+    
+    enhanced_cards = []
+    #log.info(recommendation_cards)
+    for card in recommendation_cards:
+        rec_uid = card["recommendation_uid"]
+        card_details = get_user_data(rec_uid)
+        if not card_details:
+            log.warning(f"User not found for recommendation: {rec_uid}")
+            continue
+        card_details.pop('EMAIL', None)
+        card_details.pop('PHONE', None)
+        card_details.pop('ERROR', None)
+        card_details.pop('IMAGES', None)
+        card_details['UID'] = rec_uid
+        if isinstance(card["score"],tuple):
+            score = card["score"][0]
+        else:
+            score = card["score"]
+        card_details['RECOMMENDATION_SCORE'] = score
+        card_details["rec_idx"] = card["rec_idx"]
+        card_details["usr_idx"] = card["usr_idx"]
+        enhanced_cards.append(card_details)
 
-            enhanced_cards.append(card_details)
-
-        prompts = load_prompts(config.PROMPTS_YAML)
-        filter_prompt = prompts['filter_system_prompt'].format(user_details = user_details, recommended_cards = enhanced_cards)
-
-        # Ask LLM to respond in a json format with filtered cards
-        messages = []
-        messages.append(SystemMessage(content=filter_prompt))
-
+    log.info(f'Cards to filter: {len(enhanced_cards)}')
+    filter_success = True
+    matches, filtered = [], []
+    matches_and_filtered = {}
+    
+    if filter and isinstance(user_filters, list) and len(user_filters) > 0:
         try:
-            response = llm(messages)
+            log.info(f'applying filter: {user_details},\n{enhanced_cards}')
+            matches_and_filtered = filter_agent(user_details, enhanced_cards)
+            log.info(f'Filter applied. Result: {matches_and_filtered}')
+
+            for i in enhanced_cards:
+                if i['UID'] in matches_and_filtered['Matched'].keys():
+                    usr_reason, rec_reason = matches_and_filtered['Matched'][i['UID']][0], matches_and_filtered['Matched'][i['UID']][1]
+                    i['USER_REASON'] = usr_reason
+                    i['REC_REASON'] = rec_reason
+                    matches.append(i)
+
+                elif i['UID'] in matches_and_filtered['Filtered'].keys():
+                    usr_reason, rec_reason = matches_and_filtered['Filtered'][i['UID']][0], matches_and_filtered['Filtered'][i['UID']][1]
+                    i['USER_REASON'] = usr_reason
+                    i['REC_REASON'] = rec_reason
+                    filtered.append(i)
         except Exception as e:
-            return jsonify({"error": str(e)}), 500
+            log.warning(f'Filter Failed: {e}')
+            filter_success = False
 
-        # Marshall the json, verify 'MATCHED' and 'FILTERED' keys and if each uid has two reasons.
-        matches_and_filtered = verify_cards(response.json())
-
-        matches, filtered = [], []
-        for i in cards:
-            if i['UID'] in matches_and_filtered['MATCHED'].keys():
-                usr_reason, rec_reason = matches[i['UID']][0], matches_and_filtered[i['UID']][1]
-                card['USER_REASON'] = usr_reason
-                card['REC_REASON'] = rec_reason
-                matches.append(card)
-
-            elif i['UID'] in matches_and_filtered['FILTERED'].keys():
-                usr_reason, rec_reason = matches[i['UID']][0], matches_and_filtered[i['UID']][1]
-                card['USER_REASON'] = usr_reason
-                card['REC_REASON'] = rec_reason
-                filtered.append(card)
+    if not isinstance(user_filters, list) or len(user_filters) == 0 or filter == False or filter_success == False:
+        log.info(f'Skipping filter: Number of cards: {len(enhanced_cards)}, Filter: {filter}, filter success: {filter_success}')
+        matches, filtered, matches_and_filtered = [], [], {}
+        for i in enhanced_cards:
+            i['USER_REASON'] = 'Not Present'
+            i['REC_REASON'] = 'Not Present'
+            matches.append(i)
                 
         # if len(matches) == 0:
         #     matches = cards[:]
-                    
+        #                    
     if new_filter:
-
+        if user_filters_str:
+            updated_filters = user_filters_str + ',' + new_filter
+        else:
+            updated_filters = new_filter
+        threading.Thread(target=run_async_task, args=(update_filter(uid, updated_filters),)).start()
         # Asyncronous task to add
-        log.info('TODO - Asyncronously update user filter')
+        log.info('Asyncronously updated user filter')
 
     return matches, filtered, matches_and_filtered
 
+async def update_filter(uid, updated_filters: str):
+    connect = SQLConnect(url = config.SQL_SERVICE_URL, port = config.SQL_SERVICE_PORT)
+    query = f"UPDATE {config.PROFILE_TABLE} SET FILTERS = ? WHERE UID = ?"
+    connect.cursor.execute(query, (updated_filters, uid))
+    connect.conn.commit()
+    connect.close()
+
 def fetch_queue(uid, queue_requested):
-    matching_connect = SQLConnect()
+    matching_connect = SQLConnect(url = config.SQL_SERVICE_URL, port = config.SQL_SERVICE_PORT)
     sql = f"SELECT UID1, UID2, SCORE, UPDATED, ALIGN1, ALIGN2, SKIP1, SKIP2, BLOCK1, BLOCK2, NAME1, NAME2, REASON1, REASON2, FILTERED FROM {config.MATCHING_TABLE} WHERE UID1 = '{uid}' OR UID2 = '{uid}'"
     matching_connect.cursor.execute(sql)
     results = matching_connect.cursor.fetchall()
 
     cards = []
     for row in results:
-        uid1, uid2, score, updated, a1, a2, s1, s2, b1, b2, n1, n2, r1, r2, filtered = row
+        uid1 = row['UID1']
+        uid2 = row['UID2']
+        score = row['SCORE'], 
+        updated = row['UPDATED'], 
 
-        if isinstance(filtered, bool) and filtered == True:
+        if isinstance(row['FILTERED'], bool) and row['FILTERED'] == True:
             continue
 
         usr_idx = 0 if uid == uid1 else 1
         rec_idx = 1 - usr_idx
-        usr_align, rec_align = (a1, a2) if usr_idx == 0 else (a2, a1)
-        usr_skip, rec_skip = (s1, s2) if usr_idx == 0 else (s2, s1)
-        usr_block, rec_block = (b1, b2) if usr_idx == 0 else (b2, b1)
-        usr_reason, rec_reason = (r1, r2) if usr_idx == 0 else (r2, r1)
+
+        usr_align, rec_align = (row['ALIGN1'], row['ALIGN2']) if usr_idx == 0 else (row['ALIGN2'], row['ALIGN1'])
+        usr_skip, rec_skip = (row['SKIP1'], row['SKIP2']) if usr_idx == 0 else (row['SKIP2'], row['SKIP1'])
+        usr_block, rec_block = (row['BLOCK1'], row['BLOCK2']) if usr_idx == 0 else (row['BLOCK2'], row['BLOCK1'])
+        usr_reason, rec_reason = (row['REASON1'], row['REASON2']) if usr_idx == 0 else (row['REASON2'], row['REASON1'])
 
         if usr_skip or rec_skip:
             continue
@@ -754,7 +861,7 @@ def fetch_queue(uid, queue_requested):
             continue
 
         recommendation_uid = uid2 if uid1 == uid else uid1
-        name = n2 if uid1 == uid else n1
+        name = row['NAME2'] if uid1 == uid else row['NAME1']
 
         cards.append({
             'recommendation_uid': recommendation_uid,
@@ -764,11 +871,10 @@ def fetch_queue(uid, queue_requested):
             'chat_enabled': usr_align and rec_align,
             'user_align': usr_align,
             'blocked_by_match' : rec_block, 
-            'blocked_by_user' : usr_block
+            'blocked_by_user' : usr_block,
+            'rec_idx' : rec_idx,
+            'usr_idx' : usr_idx
         })
-
-    #if queue == 'RECOMMENDATIONS':
-    #    cards = filter_cards(uid, cards)
 
     matching_connect.conn.commit()
     matching_connect.close()
@@ -786,87 +892,63 @@ def get_recommendations(uid):
 def get_matches(uid):
     return jsonify({'cards': fetch_queue(uid, 'MATCHES')})
 
-async def update_matching_table_with_filter(uid, matches, filtered):
-
-    matching_connect = SQLConnect()
-    current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-
-    for card in matches:
-        rec_uid = card['UID']
-        sql_fetch = f"SELECT UID1, UID2, SCORE, UPDATED, ALIGN1, ALIGN2, SKIP1, SKIP2, BLOCK1, BLOCK2, NAME1, NAME2, REASON1, REASON2, FILTERED FROM {config.MATCHING_TABLE} WHERE (UID1 = '{uid}' AND UID2 = '{rec_uid}') OR (UID1 = '{rec_uid}' AND UID2= '{uid}')"
-        matching_connect.cursor.execute(sql_fetch)
-        result = matching_connect.cursor.fetchone()
-
-        if str(result[0]) == str(uid):
-            log.info(f'First uid is user: {result[0]}')
-            primary = 0
-            rec_idx = 1
-
-        elif str(result[1]) == str(uid):
-
-            log.info(f'Second uid is user: {result[1]}')
-            primary = 1
-            rec_idx = 0
-        else:
-            log.error(f'No match for usr uid {uid}, {result[0]}, {result[1]}\n{result}')
-            return jsonify({'Error' : f'No match for usr uid {uid}, {result[0]}, {result[1]}\n{result}'}), 400
-        
-        usr_reason = f'REASON{primary+1}'
-        rec_reason = f'REASON{rec_idx+1}'
-        filtered = False
-
-        update_sql = f"UPDATE {config.MATCHING_TABLE} SET {usr_reason} = '{card['USER_REASON']}', {rec_reason} = '{card['REC_REASON']}', FILTERED = {filtered}, UPDATED = '{current_time}' WHERE UID1 = '{result[0]}' AND UID2 = '{result[1]}'"
-        matching_connect.cursor.execute(update_sql)
-
-    for card in filtered:
-        rec_uid = card['UID']
-        sql_fetch = f"SELECT UID1, UID2, SCORE, UPDATED, ALIGN1, ALIGN2, SKIP1, SKIP2, BLOCK1, BLOCK2, NAME1, NAME2, REASON1, REASON2, FILTERED FROM {config.MATCHING_TABLE} WHERE (UID1 = '{uid}' AND UID2 = '{rec_uid}') OR (UID1 = '{rec_uid}' AND UID2= '{uid}')"
-        matching_connect.cursor.execute(sql_fetch)
-        result = matching_connect.cursor.fetchone()
-
-        if str(result[0]) == str(uid):
-            log.info(f'First uid is user: {result[0]}')
-            primary = 0
-            rec_idx = 1
-
-        elif str(result[1]) == str(uid):
-
-            log.info(f'Second uid is user: {result[1]}')
-            primary = 1
-            rec_idx = 0
-        else:
-            log.error(f'No match for usr uid {uid}, {result[0]}, {result[1]}\n{result}')
-            return jsonify({'Error' : f'No match for usr uid {uid}, {result[0]}, {result[1]}\n{result}'}), 400
-        
-        usr_reason = f'REASON{primary+1}'
-        rec_reason = f'REASON{rec_idx+1}'
-        filtered = True
-
-        update_sql = f"UPDATE {config.MATCHING_TABLE} SET {usr_reason} = '{card['USER_REASON']}', {rec_reason} = '{card['REC_REASON']}', FILTERED = {filtered}, UPDATED = '{current_time}' WHERE UID1 = '{result[0]}' AND UID2 = '{result[1]}'"
-        matching_connect.cursor.execute(update_sql)
-
-
-    matching_connect.conn.commit()
-    matching_connect.close()
 
 def live_filter(uid : str, new_filter : str):
 
     recommendations = fetch_queue(uid, 'RECOMMENDATIONS')
+
     matches, filtered, matches_and_filtered = filter_cards(uid, recommendations, new_filter)
 
     if len(matches) == 0:
         return {'RECOMMENDATIONS' : recommendations, 'RESPONSE' : 'User filters do not satisfy any match, Please remove some filters.' }
     else:
-        filtered_recommendations = []
-        for card in recommendations:
-            if card['recommendation_uid'] in matches_and_filtered['MATCHED'].keys():
-                card['reason'] = matches_and_filtered['MATCHED'][card['UID']][0]
-                filtered_recommendations.append(card)
-        
-        # Asyncronously update this information in the matching table
-        threading.Thread(target=run_async_task, args=(update_matching_table_with_filter(uid, matches, filtered),)).start()
+        log.info(f'Recommendations: {matches}')
 
-        return {'RECOMMENDATIONS' : filtered_recommendations, 'RESPONSE' : 'Recommendations have been updated as per your request.' }
+        # Post recommendations to matching table
+        matching_connect = SQLConnect(url = config.SQL_SERVICE_URL, port = config.SQL_SERVICE_PORT)
+        
+        timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+        recommendations = []
+        for item in matches:
+            log.info(item)
+            rec_uid = item["UID"]
+            rec_idx = int(item["rec_idx"]) + 1
+            usr_idx = int(item["usr_idx"]) + 1
+        
+            
+            if 'USER_REASON' in item:
+                usr_reason = item['USER_REASON']
+                rec_reason = item['REC_REASON']
+                
+            else:
+                usr_reason = 'Not Present'
+                rec_reason = 'Not Present'
+            
+            item.pop('REC_REASON')
+            recommendations.append(item)
+
+            update_query = f"UPDATE {config.MATCHING_TABLE} SET REASON{usr_idx} = ?, REASON{rec_idx} = ?, UPDATED = ?, FILTERED = 0 WHERE UID{usr_idx} = ? AND UID{rec_idx} = ?"
+            matching_connect.cursor.execute(update_query, (usr_reason, rec_reason, timestamp, uid, rec_uid))
+        
+        for item in filtered:
+            
+            rec_uid = item["UID"]
+            rec_idx = int(item["rec_idx"]) + 1
+            usr_idx = int(item["usr_idx"]) + 1
+            if 'USER_REASON' in item:
+                usr_reason = item['USER_REASON']
+                rec_reason = item['REC_REASON']
+            else:
+                usr_reason = 'Not Present'
+                rec_reason = 'Not Present'
+
+            update_query = f"UPDATE {config.MATCHING_TABLE} SET REASON{usr_idx} = ?, REASON{rec_idx} = ?, UPDATED = ?, FILTERED = 1 WHERE UID{usr_idx} = ? AND UID{rec_idx} = ?"
+            matching_connect.cursor.execute(update_query, (usr_reason, rec_reason, timestamp, uid, rec_uid))
+        
+        matching_connect.conn.commit()
+        matching_connect.close()
+
+        return {'RECOMMENDATIONS' : recommendations, 'RESPONSE' : 'Recommendations have been updated as per your request.' }
 
 def get_encoded_images(image_paths):
     '''
@@ -907,40 +989,21 @@ def get_profile(uid):
         return jsonify({"error": "Missing 'uid' in url"}), 400
 
     # Setup SQLite connection
-    profile_connect = SQLConnect()
-
-    columns = ['UID', 'NAME', 'DOB', 'CITY', 'COUNTRY', 'IMAGES', 'HOBBIES', 'PROFESSION', 'GENDER']
-    columns_string = ', '.join(columns)
-    select_sql = f"SELECT {columns_string} FROM {config.PROFILE_TABLE} WHERE UID= '{uid}'"
+    profile_connect = SQLConnect(url = config.SQL_SERVICE_URL, port = config.SQL_SERVICE_PORT)
+    select_sql = f"SELECT UID, NAME, DOB, CITY, COUNTRY, IMAGES, HOBBIES, PROFESSION, GENDER FROM {config.PROFILE_TABLE} WHERE UID = '{uid}'"
     profile_connect.cursor.execute(select_sql)
-
-    results = profile_connect.cursor.fetchall()
-
-    if len(results) > 1:
-        log.info(f'Result is not unique')
-        result = results[-1]
-    elif len(results) == 1:
-        result = results[0]
-    else:
-        log.info(f'No result for uid: {uid}')
-        return jsonify({'error': f'no results found for uid: {uid}'}), 400
+    result = profile_connect.cursor.fetchone()
 
     profile_connect.close()
 
-    output = {}
-    for idx, name in enumerate(columns):
-        if name == 'IMAGES':
-            continue
-        output[name] = result[idx]
-
     # Convert image S3 paths to base64-encoded image data
-    image_paths = result[columns.index('IMAGES')]
+    image_paths = result['IMAGES']
     image_path_list = [i.strip() for i in image_paths.split(',')]
 
-    output['IMAGES'] = image_path_list
-    output['error'] = 'OK'
+    result['IMAGES'] = image_path_list
+    result['error'] = 'OK'
 
-    return jsonify(output)
+    return jsonify(result)
 
 async def update_notifications_or_chats(uid, new_notifications_or_chats, column):
 
@@ -956,24 +1019,16 @@ async def update_notifications_or_chats(uid, new_notifications_or_chats, column)
         log.warning(f"Unsupported datatype/column: {column}. Supported datatypes are ['notifications', 'initiate_chats', 'preference_chats']")
         return None
     
-    profile_connect = SQLConnect()
+    profile_connect = SQLConnect(url = config.SQL_SERVICE_URL, port = config.SQL_SERVICE_PORT)
     select_sql = f"SELECT UID, CREATED, PASSWORD, LOGIN, {col} FROM {config.PROFILE_TABLE} WHERE UID = '{uid}'"
     profile_connect.cursor.execute(select_sql)
 
-    results = profile_connect.cursor.fetchall()
+    result = profile_connect.cursor.fetchone()
     
     process = True
-    if len(results)>1:
-        log.warning(f'uid {uid} is not unique')
-        result = results[-1]
-    elif len(results)==1:
-        result = results[0]
-    else:
-        process = False
-        log.warning(f'uid {uid} not found')
 
     if process:
-        notifications_or_chats_url = result[-1]
+        notifications_or_chats_url = result[col]
 
         # Handle PostgreSQL NaN, None, empty strings, and string 'None'
         if (notifications_or_chats_url is None or 
@@ -1048,43 +1103,39 @@ def action():
 
     valid_cols = ['UID1', 'UID2', 'SCORE', 'UPDATED', 'ALIGN1', 'ALIGN2', 'SKIP1', 'SKIP2', 'BLOCK1', 'BLOCK2', 'NAME1', 'NAME2']
     
-    matching_connect = SQLConnect()
+    matching_connect = SQLConnect(url = config.SQL_SERVICE_URL, port = config.SQL_SERVICE_PORT)
     
     sql_fetch = f"SELECT UID1, UID2, SCORE, UPDATED, ALIGN1, ALIGN2, SKIP1, SKIP2, BLOCK1, BLOCK2, NAME1, NAME2 FROM {config.MATCHING_TABLE} WHERE (UID1 = '{uid}' AND UID2 = '{rec_uid}') OR (UID1 = '{rec_uid}' AND UID2= '{uid}')"
     matching_connect.cursor.execute(sql_fetch)
-    results = matching_connect.cursor.fetchall()
+    result = matching_connect.cursor.fetchone()
     
-    if len(results)>1:
-        log.warning(f'Mathing table row is not unique {uid}, {rec_uid}')
-        result = results[-1]
-    elif len(results)==1:
-        result = results[0]
-    else:
-        return jsonify({"error": f"No row in matching table {uid}, {rec_uid}"}), 400
-    
-    if str(result[0]) == str(uid):
-        log.info(f'First uid is user: {result[0]}')
+    user_align = False
+    uid1, uid2 = result["UID1"], result["UID2"]
+    if str(uid1) == str(uid):
+        user_name = result["NAME1"]
+        recommended_user_name = result["NAME2"]
+        user_block = result["BLOCK1"]
+        rec_align = result["ALIGN2"]
+
         primary = 0
         rec_idx = 1
 
-    elif str(result[1]) == str(uid):
-
-        log.info(f'Second uid is user: {result[1]}')
+    elif str(uid2) == str(uid):
+        user_name = result["NAME2"]
+        recommended_user_name = result["NAME1"]
+        user_block = result["BLOCK2"]
+        rec_align = result["ALIGN1"]
+        
         primary = 1
         rec_idx = 0
     else:
-        log.error(f'No match for usr uid {uid}, {result[0]}, {result[1]}\n{result}')
-        return jsonify({'Error' : f'No match for usr uid {uid}, {result[0]}, {result[1]}\n{result}'}), 400
-
-    recommended_user_name = result[10+rec_idx]
-    user_name = result[10+primary]
-    user_align = False
-    user_block = result[8+primary]
+        log.error(f'No match for usr uid {uid}, {uid1}, {uid1}\n{result}')
+        return jsonify({'Error' : f'No match for usr uid {uid}, {uid1}, {uid2}\n{result}'}), 400
 
     message_recommender = None
     message = None
     if action == 'skip':
-        delete_sql = f"DELETE FROM {config.MATCHING_TABLE} WHERE UID1 = '{result[0]}' AND UID2 ='{result[1]}'"
+        delete_sql = f"DELETE FROM {config.MATCHING_TABLE} WHERE UID1 = '{uid1}' AND UID2 ='{uid2}'"
         matching_connect.cursor.execute(delete_sql)
         queue = 'None'
         message = f'{recommended_user_name} will not be recommended to you.'
@@ -1097,10 +1148,10 @@ def action():
             log.warning(f'{align_col} not a valid column')
 
 
-        update_sql = f"UPDATE {config.MATCHING_TABLE} SET {align_col} = {True}, UPDATED = '{current_time}' WHERE UID1 = '{result[0]}' AND UID2 = '{result[1]}'"
+        update_sql = f"UPDATE {config.MATCHING_TABLE} SET {align_col} = {True}, UPDATED = '{current_time}' WHERE UID1 = '{uid1}' AND UID2 = '{uid2}'"
         matching_connect.cursor.execute(update_sql)
 
-        if result[4+rec_idx] == True:
+        if rec_align == True:
             queue = 'MATCHED'
             message = f'You have been matched with {recommended_user_name}.'
             message_recommender = f'{user_name} has accepted your align request.'
@@ -1126,7 +1177,7 @@ def action():
         if block_col not in valid_cols:
             log.warning(f'{block_col} not a valid column')
 
-        update_sql = f"UPDATE {config.MATCHING_TABLE} SET {block_col} = {True}, UPDATED = '{current_time}' WHERE UID1 = '{result[0]}' AND UID2 = '{result[1]}'"
+        update_sql = f"UPDATE {config.MATCHING_TABLE} SET {block_col} = {True}, UPDATED = '{current_time}' WHERE UID1 = '{uid1}' AND UID2 = '{uid2}'"
         matching_connect.cursor.execute(update_sql)
 
         queue = 'MATCHED'
@@ -1163,10 +1214,10 @@ def verify_email():
     hashed_email = hash_email_sha256(email)
 
     # Setup SQLite connection
-    profile_connect = SQLConnect()
+    profile_connect = SQLConnect(url = config.SQL_SERVICE_URL, port = config.SQL_SERVICE_PORT)
 
     # Compare with encrypted email in database
-    sql_fetch = f"SELECT UID FROM {config.PROFILE_TABLE} WHERE EMAIL=%s"
+    sql_fetch = f"SELECT UID FROM {config.PROFILE_TABLE} WHERE EMAIL=?"
     profile_connect.cursor.execute(sql_fetch, (hashed_email,))
     results = profile_connect.cursor.fetchall()
 
@@ -1250,14 +1301,14 @@ def update_account():
         return jsonify({'error': 'No valid fields provided for update'}), 400
 
     # Build SQL UPDATE dynamically
-    set_clause = ', '.join([f"{key} = %s" for key in fields.keys()])
+    set_clause = ', '.join([f"{key} = ?" for key in fields.keys()])
     values = list(fields.values())
     values.append(uid)  # for WHERE clause
 
-    update_sql = f"UPDATE {config.PROFILE_TABLE} SET {set_clause} WHERE UID = %s"
+    update_sql = f"UPDATE {config.PROFILE_TABLE} SET {set_clause} WHERE UID = ?"
 
     try:
-        profile_connect = SQLConnect()
+        profile_connect = SQLConnect(url = config.SQL_SERVICE_URL, port = config.SQL_SERVICE_PORT)
         profile_connect.cursor.execute(update_sql, values)
         profile_connect.conn.commit()
     except Exception as e:
@@ -1278,16 +1329,16 @@ def update_account():
         log.info(f"Recalculating matching score for UID: {uid} due to updates.")
 
         # Re-fetch updated user profile
-        profile_connect = SQLConnect()
-        profile_connect.cursor.execute(f"SELECT UID, DOB, TOB, LAT, LONG, HOBBIES, GENDER, NAME FROM {config.PROFILE_TABLE} WHERE UID = %s", (uid,))
+        profile_connect = SQLConnect(url = config.SQL_SERVICE_URL, port = config.SQL_SERVICE_PORT)
+        profile_connect.cursor.execute(f"SELECT UID, DOB, TOB, LAT, LONG, HOBBIES, GENDER, NAME FROM {config.PROFILE_TABLE} WHERE UID = ?", (uid,))
         current_user = profile_connect.cursor.fetchone()
         
         if current_user:
             uid, dob, tob, lat, long, hobbies, gender, user_name = current_user
 
             # Fetch all matches where this user is involved
-            matching_connect = SQLConnect()
-            match_query = f"SELECT UID1, UID2 FROM {config.MATCHING_TABLE} WHERE UID1 = %s OR UID2 = %s"
+            matching_connect = SQLConnect(url = config.SQL_SERVICE_URL, port = config.SQL_SERVICE_PORT)
+            match_query = f"SELECT UID1, UID2 FROM {config.MATCHING_TABLE} WHERE UID1 = ? OR UID2 = ?"
             matching_connect.cursor.execute(match_query, (uid, uid))
             match_rows = matching_connect.cursor.fetchall()
 
@@ -1296,9 +1347,8 @@ def update_account():
                 # Determine the other user
                 other_uid = uid2 if uid1 == uid else uid1
                 
-
                 # Fetch other user's data using RDS
-                other_user_select_sql = f'SELECT "UID", "DOB", "TOB", "LAT", "LONG", "HOBBIES", "GENDER", "NAME" FROM "{config.RDS_PROFILE_TABLE}" WHERE "UID" = %s'
+                other_user_select_sql = f'SELECT UID, DOB, TOB, LAT, LONG, HOBBIES, GENDER, NAME FROM "{config.RDS_PROFILE_TABLE}" WHERE UID = ?'
                 profile_connect.cursor.execute(other_user_select_sql, (other_uid,))
                 other_user = profile_connect.cursor.fetchone()
 
@@ -1311,7 +1361,7 @@ def update_account():
                     recommended_names.append(other_user[-1])
 
                     # Update score in matching table
-                    update_match_sql = f"UPDATE {config.MATCHING_TABLE} SET SCORE = %s WHERE (UID1 = %s AND UID2 = %s) OR (UID1 = %s AND UID2 = %s)"
+                    update_match_sql = f"UPDATE {config.MATCHING_TABLE} SET SCORE = ? WHERE (UID1 = ? AND UID2 = ?) OR (UID1 = ? AND UID2 = ?)"
                     matching_connect.cursor.execute(update_match_sql, (new_score, uid, other_uid, other_uid, uid))
             
             if gender == 'male':
@@ -1332,7 +1382,7 @@ def update_account():
             previous_uids = recommended_uids[:]
             for row in results:
     
-                recommended_uids.append(row[0])
+                recommended_uids.append(row['UID'])
                 score = compute_score(current_user, row)
                 new_scores.append(score)
                 recommended_names.append(-1)
@@ -1340,7 +1390,7 @@ def update_account():
             # SORT LIST AND GET TOP TEN MATCHES
             sorted_pairs = sorted(zip(recommended_uids, new_scores, recommended_names), key=lambda x: x[1], reverse=True)
             recommendations = sorted_pairs[:config.MAX_MATCHES]
-            insert_sql_matching = f"INSERT INTO {config.MATCHING_TABLE} (UID1, UID2, SCORE, CREATED, UPDATED, ALIGN1, ALIGN2, SKIP1, SKIP2, BLOCK1, BLOCK2, NAME1, NAME2) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+            insert_sql_matching = f"INSERT INTO {config.MATCHING_TABLE} (UID1, UID2, SCORE, CREATED, UPDATED, ALIGN1, ALIGN2, SKIP1, SKIP2, BLOCK1, BLOCK2, NAME1, NAME2) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 
             timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
             for idx, id_pair in enumerate(recommendations):
@@ -1413,345 +1463,110 @@ def load_previous_chats(chats_url):
     return previous_chats
     
 
-@app.route("/chat:initiate/<string:uid>", methods = ["GET"])
-def chat_initiate(uid):
-
-    if uid is None:
-        return jsonify({"error": "Missing 'uid' in url"}), 400
-
-    profile_connect = SQLConnect()
-
-    columns = ['UID', 'NAME', 'DOB', 'CITY', 'COUNTRY', 'HOBBIES', 'PROFESSION', 'GENDER', 'INITIATE_CHATS']
-    columns_string = ', '.join(columns)
-    select_sql = f"SELECT {columns_string} FROM {config.PROFILE_TABLE} WHERE UID = '{uid}'"
-    profile_connect.cursor.execute(select_sql)
-
-    results = profile_connect.cursor.fetchall()
-
-    if len(results) > 1:
-        log.info(f'Result is not unique')
-        result = results[-1]
-    elif len(results) == 1:
-        result = results[0]
-    else:
-        log.info(f'No result for uid: {uid}')
-        return jsonify({'error': f'no results found for uid: {uid}'}), 400
+@app.route("/chat:app", methods=["GET", "POST"])
+def chat_app():
+    """
+    Unified endpoint for app-initiated hobby conversations
     
-    name = result[1]
-    hobbies = result[5]
-
-    profile_connect.close()
-    chats_url = result[-1]
-
-    previous_chats = load_previous_chats(chats_url)
-    prompts = load_prompts(config.PROMPTS_YAML)
-    system_prompt = prompts['initiate_system_prompt'].format(name = name, hobbies = hobbies, previous_chats = previous_chats)
-
-    # Start with system message if no history
-    messages = []
-    messages.append(SystemMessage(content=system_prompt))
-    # Get response from LLM
-    try:
-        response = llm(messages)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    GET: Start new conversation
+    POST: Continue existing conversation
     
-    assistant_msg = response.content
-
-    history = [{"role": "system", "content" : system_prompt}, {"role" : "assistant", "content" : assistant_msg}]
-
-    return jsonify({"role": "assistant", "message": assistant_msg, "history": history, "continue" : True })
-
-
-def continue_chat(user_input, history):
-    
-    messages = []
-    # Add chat history (reconstruct LangChain message objects)
-    count = 0
-    for msg in history:
-        if 'role' not in msg:
-            log.warning(f'No role found: {msg}')
-            continue
-        if msg['role'] == 'user':
-            if 'content' in msg:
-                messages.append(HumanMessage(content=msg['content']))
-            elif 'message' in msg:
-                messages.append(HumanMessage(content=msg['message']))
-            else:
-                log.warning(f'Niether content nor message in message, {msg}')
-
-        elif msg['role'] == 'assistant':
-            if 'content' in msg:
-                messages.append(AIMessage(content=msg['content']))
-            elif 'message' in msg:
-                messages.append(AIMessage(content=msg['message']))
-            else:
-                log.warning(f'Niether content nor message in message, {msg}')
-
-        elif msg['role'] == 'system':
-            if 'content' in msg:
-                messages.append(SystemMessage(content=msg['content']))
-            elif 'message' in msg:
-                messages.append(SystemMessage(content=msg['message']))
-            else:
-                log.warning(f'Niether content nor message in message, {msg}')
-        else:
-            log.warning(f'invalid role found: {msg}')
-
-        count += 1
-
-    # Add the latest user input
-    messages.append(HumanMessage(content=user_input))
-
-    if count <= config.MAX_DESTINY_CHAT:
-
-        # Get response from LLM
-        try:
-            response = llm(messages)
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
-
-        assistant_msg = response.content
-        cont = True
-
-    else:
-        assistant_msg = 'I have been instructed to keep the conversations short. Thank you for chatting with me! This information helps us find better matches for you.'
-        cont = False
-
-    # Update history
-    updated_history = history + [
-        {"role": "user", "message": user_input},
-        {"role": "assistant", "message": assistant_msg}
-    ]
-    return assistant_msg, updated_history, cont
-
-@app.route("/chat/initiate:continue", methods=["POST"])
-def continue_initiate():
-
+    POST Body: {
+        "uid": "user_id",
+        "user_input": "user message",
+        "history": [optional previous history]
+    }
+    """
     try:
         json_data = request.get_json()
+        
         uid = json_data.get('uid')
-        user_input = json_data.get('user_input')
-        history = json_data.get('history')
-    except:
-        return jsonify({'error': 'Invalid JSON or missing uid/user_input/history'}), 400
-    
-    current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-
-    if user_input.lower() in ['bye', 'exit', 'quit', 'goodbye', 'end']:
-        endphrase_list = ['Thank you for chatting with me! This information helps us find better matches for you.', 'See you later! we will further discuss your hoobie some other time.']
-        goodbye = random.choice(endphrase_list)
-
-        threading.Thread(target=run_async_task, args=(update_notifications_or_chats(uid, [{'history' : history, 'updated' : current_time}], 'INITIATE_CHATS'),)).start()
-        history.extend([{"role" : "user", "content": f"{user_input}"}, {"role" : "Code", "goodbye": f"{goodbye}"}])
-        # TODO Call upload to s3 function
-        return jsonify({
-            "message": goodbye,
-            "history": history,
-            "continue": False
-        })
-    
-    assistant_msg, updated_history, cont = continue_chat(user_input, history)
-
-    
-    if 'thank you for chatting with me' in assistant_msg.lower() or cont == False:
-        threading.Thread(target=run_async_task, args=(update_notifications_or_chats(uid, [{'history' : updated_history, 'updated' : current_time}], 'INITIATE_CHATS'),)).start()
-        cont = False
-
-    return jsonify({
-        "message": assistant_msg,
-        "history": updated_history,
-        "continue": cont
-    })
-
-@app.route("/chat/preference:continue", methods=["POST"])
-def continue_preference():
-
-    try:
-        json_data = request.get_json()
-        uid = json_data.get('uid')
-        user_input = json_data.get('user_input')
+        if not uid:
+            return jsonify({"error": "Missing 'uid' parameter"}), 400
+        
+        user_input = json_data.get('user_input', '')
         history = json_data.get('history', [])
-    except:
-        return jsonify({'error': 'Invalid JSON or missing uid/user_input/history'}), 400
-    
-    current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
 
-    # Check if user wants to exit
-    if user_input.lower() in ['bye', 'exit', 'quit', 'goodbye', 'end']:
-        endphrase_list = ['Thank you for chatting with me! This information helps us find better matches for you.', 'See you later! we will further discuss your preferences some other time.']
-        goodbye = random.choice(endphrase_list)
+        if isinstance(user_input, str) and len(user_input) > 0 and isinstance(history, list) and len(history) > 0:
+            # Continue app-initiated conversation
+            
+            result = chat_flow.initiate_chat(
+                chat_type="app_initiated",
+                uid=uid,
+                user_input=user_input,
+                history=history,
+                log = log
+            )
 
-        threading.Thread(target=run_async_task, args=(update_notifications_or_chats(uid, [{'history' : history, 'updated' : current_time}], 'PREFERENCE_CHATS'),)).start()
-        history.extend([{"role" : "user", "content": f"{user_input}"}, {"role" : "Code", "goodbye": f"{goodbye}"}])
-        
-        return jsonify({
-            "message": goodbye,
-            "history": history,
-            "continue": False
-        })
-
-    # Check if we have a system prompt already (continuing conversation)
-    system = False
-    if len(history) > 0:
-        for item in history:
-            if "role" in item and item["role"] == "system":
-                system = True
-                break
-
-    if system == True:
-        # Continue existing conversation with agent capabilities
-        try:
-            assistant_msg, updated_history, cont = continue_chat(user_input, history)
-
-            # Try to parse the assistant response as JSON to check if it's an agent decision
-            try:
-                agent_response = json.loads(assistant_msg)
-                if isinstance(agent_response, dict) and "mode" in agent_response:
-                    # This is an agent response
-                    if agent_response["mode"] == "FILTER" and "filter_query" in agent_response:
-                        # Apply filter using live_filter function
-                        filter_result = live_filter(uid, agent_response["filter_query"])
-                        
-                        # Update the message to include filter results
-                        response_message = agent_response.get("message", "I've applied the filter to your recommendations.")
-                        response_message += f"\n\n{filter_result['RESPONSE']}"
-                        
-                        # Add filter results to the response
-                        updated_history[-1]["content"] = response_message
-                        
-                        return jsonify({
-                            "message": response_message,
-                            "history": updated_history,
-                            "continue": cont,
-                            "filter_applied": True,
-                            "recommendations": filter_result.get('RECOMMENDATIONS', [])
-                        })
-                    else:
-                        # Chat mode - return the message from the JSON
-                        chat_message = agent_response.get("message", assistant_msg)
-                        updated_history[-1]["content"] = chat_message
-                        
-                        return jsonify({
-                            "message": chat_message,
-                            "history": updated_history,
-                            "continue": cont
-                        })
-            except (json.JSONDecodeError, KeyError):
-                # Not a JSON response, treat as regular chat
-                pass
-
-            if 'thank you for chatting with me' in assistant_msg.lower() or cont == False:
-                threading.Thread(target=run_async_task, args=(update_notifications_or_chats(uid, [{'history' : updated_history, 'updated' : current_time}], 'PREFERENCE_CHATS'),)).start()
-                cont = False
-
-            return jsonify({
-                "message": assistant_msg,
-                "history": updated_history,
-                "continue": cont
-            })
-
-        except Exception as e:
-            log.error(f"Error in continue_chat: {e}")
-            return jsonify({"error": str(e)}), 500
-
-    else:
-        # Start new conversation with agent system prompt
-        profile_connect = SQLConnect()
-
-        columns = ['UID', 'NAME', 'DOB', 'CITY', 'COUNTRY', 'HOBBIES', 'PROFESSION', 'GENDER', 'PREFERENCE_CHATS']
-        columns_string = ', '.join(columns)
-        select_sql = f"SELECT {columns_string} FROM {config.PROFILE_TABLE} WHERE UID = '{uid}'"
-        profile_connect.cursor.execute(select_sql)
-
-        results = profile_connect.cursor.fetchall()
-
-        if len(results) > 1:
-            log.info(f'Result is not unique')
-            result = results[-1]
-        elif len(results) == 1:
-            result = results[0]
         else:
-            log.info(f'No result for uid: {uid}')
-            return jsonify({'error': f'no results found for uid: {uid}'}), 400
+            result = chat_flow.initiate_chat(
+                chat_type="app_initiated",
+                uid=uid,
+                log = log
+            )
         
-        name = result[1]
-        profile_connect.close()
-
-        chats_url = result[-1]
-        previous_chats = load_previous_chats(chats_url)
-        prompts = load_prompts(config.PROMPTS_YAML)
-
-        system_prompt = prompts['preference_system_prompt'].format(name=name, previous_chats=previous_chats)
-
-        # Start with system message
-        messages = []
-        messages.append(SystemMessage(content=system_prompt))
-        messages.append(HumanMessage(content=user_input))
-
-        # Get response from LLM
-        try:
-            response = llm(messages)
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
-        
-        assistant_msg = response.content
-
-        # Try to parse agent response
-        try:
-            agent_response = json.loads(assistant_msg)
-            if isinstance(agent_response, dict) and "mode" in agent_response:
-                if agent_response["mode"] == "FILTER" and "filter_query" in agent_response:
-                    # Apply filter using live_filter function
-                    filter_result = live_filter(uid, agent_response["filter_query"])
-                    
-                    # Create response message
-                    response_message = agent_response.get("message", "I've applied the filter to your recommendations.")
-                    response_message += f"\n\n{filter_result['RESPONSE']}"
-                    
-                    history = [
-                        {"role": "system", "content": system_prompt}, 
-                        {"role": "user", "content": user_input}, 
-                        {"role": "assistant", "content": response_message}
-                    ]
-                    
-                    return jsonify({
-                        "message": response_message,
-                        "history": history,
-                        "continue": True,
-                        "filter_applied": True,
-                        "recommendations": filter_result.get('RECOMMENDATIONS', [])
-                    })
-                else:
-                    # Chat mode
-                    chat_message = agent_response.get("message", assistant_msg)
-                    history = [
-                        {"role": "system", "content": system_prompt}, 
-                        {"role": "user", "content": user_input}, 
-                        {"role": "assistant", "content": chat_message}
-                    ]
-                    
-                    return jsonify({
-                        "message": chat_message,
-                        "history": history,
-                        "continue": True
-                    })
-        except (json.JSONDecodeError, KeyError):
-            # Not a JSON response, treat as regular chat
-            pass
-
-        # Fallback to regular chat
-        history = [
-            {"role": "system", "content": system_prompt}, 
-            {"role": "user", "content": user_input}, 
-            {"role": "assistant", "content": assistant_msg}
-        ]
-
+        if "error" in result:
+            return jsonify(result), 400
+            
         return jsonify({
-            "message": assistant_msg,
-            "history": history,
-            "continue": True
+            "message": result.get("message", ""),
+            "history": result.get("history", []),
+            "continue": result.get("continue", True)
         })
+        
+    except Exception as e:
+        log.error(f"Error in chat_app: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/chat:user", methods=["POST"])
+def chat_user():
+    """
+    Unified endpoint for user-initiated preference conversations
+    
+    POST Body: {
+        "uid": "user_id",
+        "user_input": "user message",
+        "history": [optional previous history]
+    }
+    """
+    try:
+        json_data = request.get_json()
+        uid = json_data.get('uid')
+        user_input = json_data.get('user_input', '')
+        history = json_data.get('history', [])
+        log.info(f'Preference chat with {uid}, User Input: {user_input}')
+        if not all([uid, user_input]) or len(user_input) == 0:
+            return jsonify({'error': 'Missing uid or user_input'}), 400
+        
+        result = chat_flow.initiate_chat(
+            chat_type="user_initiated",
+            uid=uid,
+            user_input=user_input,
+            history=history,
+            log= log
+        )
+        
+        if "error" in result:
+            return jsonify(result), 400
+            
+        # Include all response fields
+        response = {
+            "message": result.get("message", ""),
+            "history": result.get("history", []),
+            "continue": result.get("continue", True)
+        }
+        
+        # Include filter-specific fields if present
+        if result.get("filter_applied"):
+            response["filter_applied"] = True
+            response["recommendations"] = result.get("recommendations", [])
+            
+        return jsonify(response)
+        
+    except Exception as e:
+        log.error(f"Error in chat_user: {e}")
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/e2echat:token/<string:uid>', methods=['GET'])
 def generate_chat_token(uid):
@@ -1812,20 +1627,20 @@ def get_conversation():
         )
 
         # Connect to SQLite
-        matching_connect = SQLConnect()
+        matching_connect = SQLConnect(url = config.SQL_SERVICE_URL, port = config.SQL_SERVICE_PORT)
 
 # Check if conversation already exists
         select_sql = f"""
             SELECT CONVERSATION_SID 
             FROM {config.MATCHING_TABLE} 
-            WHERE (UID1 = %s AND UID2 = %s) OR (UID1 = %s AND UID2 = %s)
+            WHERE (UID1 = ? AND UID2 = ?) OR (UID1 = ? AND UID2 = ?)
         """
 
         matching_connect.cursor.execute(select_sql, (uid1, uid2, uid2, uid1))
         result = matching_connect.cursor.fetchone()
 
-        if result and result[0]:
-            conversation_sid = result[0]
+        if result:
+            conversation_sid = result['CONVERSATION_SID']
         else:
             # Create new conversation
             conversation = client.conversations.v1.conversations.create(
@@ -1842,8 +1657,8 @@ def get_conversation():
             # Store conversation SID in your DB
             update_sql = f"""
                 UPDATE {config.MATCHING_TABLE} 
-                SET CONVERSATION_SID = %s 
-                WHERE (UID1 = %s AND UID2 = %s) OR (UID1 = %s AND UID2 = %s)
+                SET CONVERSATION_SID = ? 
+                WHERE (UID1 = ? AND UID2 = ?) OR (UID1 = ? AND UID2 = ?)
             """
             
             matching_connect.cursor.execute(update_sql, (conversation_sid, uid1, uid2, uid2, uid1))
@@ -1859,6 +1674,7 @@ def get_conversation():
     except Exception as e:
         log.error(f"Error managing conversation: {e}")
         return jsonify({'error': str(e)}), 500
+
 
 @app.after_request
 def add_cors_headers(response):

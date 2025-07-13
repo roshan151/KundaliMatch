@@ -27,8 +27,8 @@ class Config:
     RDS_DB_NAME = 'AlignedDB'
 
     # AWS Configuration
-    BUCKET = 'match-bucket-2025'
-    REGION = 'us-east-2'
+    BUCKET = 'aligned-data'
+    REGION = 'us-east-1'
     aws_secrets_group = 'aligned-app-secrets'
     #rds_secrets_group = 'AlignedDB-RDS-Secrets'
 
