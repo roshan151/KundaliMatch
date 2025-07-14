@@ -479,7 +479,7 @@ async def populate_matches(uid, gender):
                 'recommendation_uid': rec_uid,
                 'name': rec_name,
                 'score': score,
-                'reason':  '', 
+                'reason':  'Not Present', 
                 'chat_enabled': False,
                 'user_align': False,
                 'blocked_by_match' : False, 
@@ -590,7 +590,7 @@ def login():
     
     # Use SHA256 hash for email lookup - compute hash in Python for SQLite compatibility
     hashed_email = hash_email_sha256(email)
-    select_sql = f"SELECT UID, PASSWORD, NOTIFICATIONS, EMAIL, PHONE, LOGIN FROM {config.PROFILE_TABLE} WHERE EMAIL_HASH = ?"
+    select_sql = f"SELECT UID, PASSWORD, NOTIFICATIONS, EMAIL, PHONE, LOGIN, FILTERS FROM {config.PROFILE_TABLE} WHERE EMAIL_HASH = ?"
 
      
     profile_connect.cursor.execute(select_sql, (hashed_email,))
@@ -599,7 +599,7 @@ def login():
     if not result:
         return jsonify({'LOGIN': 'UNSUCCESSFUL', 'ERROR': 'Email not found.'})
     
-    if not verify_password(result['UID'], password):
+    if not verify_password(result['PASSWORD'], password):
         return jsonify({'LOGIN': 'UNSUCCESSFUL', 'ERROR': 'Password is Incorrect.'})
 
     uid = result['UID']
@@ -657,6 +657,9 @@ def login():
     decrypted_email = decrypt_sensitive_data(result['EMAIL'])
     decrypted_phone = decrypt_sensitive_data(result['PHONE'])
 
+    filters = []
+    if isinstance(result['FILTERS'], str) and len(result['FILTERS']) > 0:
+        filters = result['FILTERS'].split(',')
     return jsonify({
         'LOGIN': 'SUCCESSFUL', 
         'UID': uid, 
@@ -664,6 +667,7 @@ def login():
         'OLD_NOTIFICATIONS': old_notifications,
         'EMAIL': decrypted_email,
         'PHONE': decrypted_phone,
+        'FILTERS': filters,
         'ERROR': 'OK'
     })
 
@@ -683,6 +687,10 @@ def get_user_data(uid):
         return None
 
     image_path_list = [i.strip() for i in str(result['IMAGES']).split(',')]
+    filters = []
+    if isinstance(result['FILTERS'], str) and len(result['FILTERS']) > 0:
+        filters = result['FILTERS'].split(',')
+
     user_data = {
         'UID': uid,
         'NAME': result['NAME'],
@@ -693,7 +701,7 @@ def get_user_data(uid):
         'HOBBIES': result['HOBBIES'],
         'PROFESSION': result['PROFESSION'],
         'GENDER': result['GENDER'],
-        'FILTERS' : result['FILTERS'],
+        'FILTERS' : filters,
         'EMAIL': decrypt_sensitive_data( result['EMAIL'] ),
         'PHONE' : decrypt_sensitive_data( result['PHONE'] ),
         'ERROR': 'OK'
@@ -732,6 +740,8 @@ def filter_cards(uid, recommendation_cards, new_filter : str = None, filter = Tr
 
     if isinstance(user_filters_str, str):
         user_filters = user_filters_str.split(',')
+    elif isinstance(user_filters_str, list) and len(user_filters_str) > 0:
+        user_filters = user_filters_str[:]
     else:
         user_filters = []
 
@@ -837,7 +847,7 @@ def fetch_queue(uid, queue_requested):
         score = row['SCORE'], 
         updated = row['UPDATED'], 
 
-        if isinstance(row['FILTERED'], bool) and row['FILTERED'] == True:
+        if (isinstance(row['FILTERED'], str)) and row['FILTERED'] == '1' or (isinstance(row['FILTERED'], bool) and row['FILTERED'] == True):
             continue
 
         usr_idx = 0 if uid == uid1 else 1
@@ -848,11 +858,11 @@ def fetch_queue(uid, queue_requested):
         usr_block, rec_block = (row['BLOCK1'], row['BLOCK2']) if usr_idx == 0 else (row['BLOCK2'], row['BLOCK1'])
         usr_reason, rec_reason = (row['REASON1'], row['REASON2']) if usr_idx == 0 else (row['REASON2'], row['REASON1'])
 
-        if usr_skip or rec_skip:
+        if usr_skip or rec_skip or usr_skip == '1' or rec_skip == '1':
             continue
-        if usr_align and rec_align:
+        if (usr_align and rec_align) or (usr_align == '1' and rec_align == '1'):
             queue = 'MATCHES'
-        elif not usr_align and not rec_align:
+        elif (not usr_align and not rec_align) or (usr_align == '0' and rec_align == '0'):
             queue = 'RECOMMENDATIONS'
         else:
             queue = 'AWAITING'
@@ -990,17 +1000,20 @@ def get_profile(uid):
 
     # Setup SQLite connection
     profile_connect = SQLConnect(url = config.SQL_SERVICE_URL, port = config.SQL_SERVICE_PORT)
-    select_sql = f"SELECT UID, NAME, DOB, CITY, COUNTRY, IMAGES, HOBBIES, PROFESSION, GENDER FROM {config.PROFILE_TABLE} WHERE UID = '{uid}'"
+    select_sql = f"SELECT UID, NAME, DOB, CITY, COUNTRY, IMAGES, HOBBIES, PROFESSION, GENDER, FILTERS FROM {config.PROFILE_TABLE} WHERE UID = '{uid}'"
     profile_connect.cursor.execute(select_sql)
     result = profile_connect.cursor.fetchone()
 
     profile_connect.close()
-
+    filters = []
+    if isinstance(result['FILTERS'], str) and len(result['FILTERS']) > 0:
+        filters = result['FILTERS'].split(',')
     # Convert image S3 paths to base64-encoded image data
     image_paths = result['IMAGES']
     image_path_list = [i.strip() for i in image_paths.split(',')]
 
     result['IMAGES'] = image_path_list
+    result['FILTERS'] = filters
     result['error'] = 'OK'
 
     return jsonify(result)

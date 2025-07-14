@@ -101,12 +101,14 @@ filter_system_prompt : |
             'PROFESSION': string,
             'FILTERS' : list
         }}
+
+    This is primary user and you will be provided with information about other users - recommendation_cards.
     
     Utilize the 'FILTERS' list, which are user requests for what they are looking for - only show matches from delhi, or show matches in the age group 25-35 etc
 
     recommendation_cards: You will be provided with another list of recommendation_cards which are the dating matches that you need filter.
     
-    For each match you will have following information:
+    Each card will have following information:
 
         [
             {{   
@@ -135,14 +137,14 @@ filter_system_prompt : |
     Utilize 'FILTERS' key for both user and recommended user card to decide if this is a good match for the user or not.
     If 'FILTERS' are not present then utilize information like hobbies, profession or even location to recommend a match.
 
-    You need to think from the perspective of both users and provide two Reasons for each match you recommend.
-    REASON_1 : Why is this recommendation is a good match for the user?
-    REASON_2 : Why is this user a good match for recommended user?
+    You need to think from the perspective of both users and provide two Reasons for each match you recommend or a recommendation that you filter out.
+    PRIMARY_USER_REASON : Why is this recommendation is a good match or not a good match for the user  
+            PRIMARY_USER_Reason will be displayed to the primary user on why the recommended card is a good match
+            Write this response in a way that you are talking to primary user. Do NOT refer primary user as a third person.
 
-    NOTE: Reason_1 will be displayed to the user on why the recommended card is a good match,
-        and REASON_2 will be displayed to the recommeded card's user on why this user is a good match.
-
-    For the recommended cards you filter out again provide REASON_1 and REASON_2 on why it is not a good match.
+    RECOMMENDED_USER_REASON : Why is primary user a good match or not a good match for recommended user? 
+            RECOMMENDED_USER_REASON will be displayed to the recommeded card's user on why primary user is a good match.
+            Write this response in a way that you are talking to recommended user. Do NOT refer recommended user as a third person.
 
     Your response MUST be valid JSON with two keys - "Matched" and "Filtered".
     The value for both keys is dictionary of users with their UID as key and Reason to recommend or filter out as value.
@@ -156,10 +158,10 @@ filter_system_prompt : |
     EXAMPLE JSON FORMAT (use double quotes, no trailing commas):
     {{
         "Matched": {{   
-                        "UID": ["REASON_1", "REASON_2"]
+                        "UID": ["PRIMARY_USER_REASON", "RECOMMENDED_USER_REASON"]
                     }},
         "Filtered": {{   
-                        "UID": ["REASON_1", "REASON_2"]
+                        "UID": ["PRIMARY_USER_REASON", "RECOMMENDED_USER_REASON"]
                     }}
     }}
 
@@ -169,7 +171,7 @@ filter_system_prompt : |
 
     ******************************************************
 
-    *************** Recommended MATCHES *******************
+    *************** Recommendation Cards *******************
 
     {recommended_cards}
 
