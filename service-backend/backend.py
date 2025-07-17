@@ -525,8 +525,6 @@ async def populate_matches(uid, gender):
         else:
             log.info('Filter rejected all cards')
 
-        
-
 def ensure_datetime(value):
     if isinstance(value, datetime):
         return value
@@ -801,6 +799,7 @@ def filter_cards(uid, recommendation_cards, new_filter : str = None, filter = Tr
                     i['USER_REASON'] = usr_reason
                     i['REC_REASON'] = rec_reason
                     filtered.append(i)
+
         except Exception as e:
             log.warning(f'Filter Failed: {e}')
             filter_success = False
@@ -812,29 +811,115 @@ def filter_cards(uid, recommendation_cards, new_filter : str = None, filter = Tr
             i['USER_REASON'] = 'Not Present'
             i['REC_REASON'] = 'Not Present'
             matches.append(i)
-                
-        # if len(matches) == 0:
-        #     matches = cards[:]
-        #                    
+                                 
     if new_filter:
-        if user_filters_str:
-            updated_filters = user_filters_str + ',' + new_filter
-        else:
-            updated_filters = new_filter
-        threading.Thread(target=run_async_task, args=(update_filter(uid, updated_filters),)).start()
-        # Asyncronous task to add
-        log.info('Asyncronously updated user filter')
 
+        log.info('Asyncronously updating user filters...')
+        threading.Thread(target=run_async_task, args=(update_filter(uid, user_filters_str, new_filter),)).start()
+        # Asyncronous task to add
+        
     return matches, filtered, matches_and_filtered
 
-async def update_filter(uid, updated_filters: str):
+async def update_filter(uid, user_filters_str: str, new_filter : str):
+
+    if isinstance(user_filters_str, list) and len(user_filters_str) > 0:
+        user_filters_str = [i.replace(",", "").strip() for i in user_filters_str]
+        user_filters_str = ','.join(user_filters_str)
+    elif isinstance(user_filters_str, str) and len(user_filters_str) > 0:
+        updated_filters = user_filters_str + ',' + new_filter
+    else:
+        updated_filters = new_filter
+
     connect = SQLConnect(url = config.SQL_SERVICE_URL, port = config.SQL_SERVICE_PORT)
     query = f"UPDATE {config.PROFILE_TABLE} SET FILTERS = ? WHERE UID = ?"
     connect.cursor.execute(query, (updated_filters, uid))
     connect.conn.commit()
     connect.close()
 
-def fetch_queue(uid, queue_requested):
+@app.route('/update:filter', methods=['POST'])
+def remove_filter():
+
+    if not request.is_json:
+        return jsonify({'error': 'Content-Type must be application/json'}), 400
+
+    json_data = request.get_json()
+    if not json_data:
+        return jsonify({'error': 'Missing JSON data'}), 400
+
+    uid = json_data.get('uid', '').lower()
+    filter = json_data.get('filter')
+    
+    if not uid or not filter:
+        return jsonify({'error': 'Missing uid or filter to be removed'}), 400
+    
+    profile_connect = SQLConnect(url = config.SQL_SERVICE_URL, port = config.SQL_SERVICE_PORT)
+    select_sql = f"SELECT UID, NAME, DOB, CITY, COUNTRY, IMAGES, HOBBIES, PROFESSION, GENDER, FILTERS FROM {config.PROFILE_TABLE} WHERE UID = '{uid}'"
+    profile_connect.cursor.execute(select_sql)
+    result = profile_connect.cursor.fetchone()
+    profile_connect.close()
+
+    if not result:
+        return {'error' : f'UID not found - {uid}'}
+
+    filters = []
+    if isinstance(result['FILTERS'], str) and len(result['FILTERS']) > 0:
+        filters = result['FILTERS'].split(',')
+    
+    filters = [i.strip().lower() for i in filters]
+
+    if filter.lower() in filters:
+        filters.remove(filter.lower())
+
+        # Update filters in the database
+        updated_filters = ','.join(filters)
+        query = f"UPDATE {config.PROFILE_TABLE} SET FILTERS = ? WHERE UID = ?"
+        profile_connect.cursor.execute(query, (updated_filters, uid))
+        profile_connect.conn.commit()
+        profile_connect.close()
+
+        # Get all filtered out cards
+        filtered_out_cards = fetch_queue(uid, 'RECOMMENDATIONS', get_filtered=True)
+
+        # Current recommendations queue
+        recommended_cards = fetch_queue(uid, 'RECOMMENDATIONS')
+        if len(filtered_out_cards) > 0:
+            # Reapply new filters on currently filtered out cards
+            matches, filtered, matches_and_filtered = filter_cards(uid, filtered_out_cards)
+
+            if len(matches) > 0:
+                matching_connect = SQLConnect(url = config.SQL_SERVICE_URL, port = config.SQL_SERVICE_PORT)
+                timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+
+                for item in matches:
+                    log.info(f'New Recommendation after removing filter: {item}')
+                    rec_uid = item["UID"]
+                    rec_idx = int(item["rec_idx"]) + 1
+                    usr_idx = int(item["usr_idx"]) + 1
+                
+                    if 'USER_REASON' in item:
+                        usr_reason = item['USER_REASON']
+                        rec_reason = item['REC_REASON']
+                        
+                    else:
+                        usr_reason = 'Not Present'
+                        rec_reason = 'Not Present'
+                    
+                    item.pop('REC_REASON')
+                    recommended_cards.append(item)
+
+                    update_query = f"UPDATE {config.MATCHING_TABLE} SET REASON{usr_idx} = ?, REASON{rec_idx} = ?, UPDATED = ?, FILTERED = 0 WHERE UID{usr_idx} = ? AND UID{rec_idx} = ?"
+                    matching_connect.cursor.execute(update_query, (usr_reason, rec_reason, timestamp, uid, rec_uid))
+
+        return {'RECOMMENDATIONS' : recommended_cards, 'RESPONSE' : 'Recommendations have been updated as per your request.', 'ERROR' : 'OK' }
+        
+
+    else:
+        return {'error' : f'No such filter - {filter}, found in user filters - {filters}'}, 400
+
+# normally this function is used to get all cards in a queue - recommendations, awaiting, matched and ignores cards that are filtered out
+# With get_filtered set to True function can be used to get recommendations that have been filtered out
+# This is done when a user removes one of their filters, and all filtered out cards need to be matched again
+def fetch_queue(uid, queue_requested, get_filtered = False):
     matching_connect = SQLConnect(url = config.SQL_SERVICE_URL, port = config.SQL_SERVICE_PORT)
     sql = f"SELECT UID1, UID2, SCORE, UPDATED, ALIGN1, ALIGN2, SKIP1, SKIP2, BLOCK1, BLOCK2, NAME1, NAME2, REASON1, REASON2, FILTERED FROM {config.MATCHING_TABLE} WHERE UID1 = '{uid}' OR UID2 = '{uid}'"
     matching_connect.cursor.execute(sql)
@@ -847,44 +932,58 @@ def fetch_queue(uid, queue_requested):
         score = row['SCORE'], 
         updated = row['UPDATED'], 
 
+        # Skip card if it has been previously filtered out
         if (isinstance(row['FILTERED'], str)) and row['FILTERED'] == '1' or (isinstance(row['FILTERED'], bool) and row['FILTERED'] == True):
-            continue
-
-        usr_idx = 0 if uid == uid1 else 1
-        rec_idx = 1 - usr_idx
-
-        usr_align, rec_align = (row['ALIGN1'], row['ALIGN2']) if usr_idx == 0 else (row['ALIGN2'], row['ALIGN1'])
-        usr_skip, rec_skip = (row['SKIP1'], row['SKIP2']) if usr_idx == 0 else (row['SKIP2'], row['SKIP1'])
-        usr_block, rec_block = (row['BLOCK1'], row['BLOCK2']) if usr_idx == 0 else (row['BLOCK2'], row['BLOCK1'])
-        usr_reason, rec_reason = (row['REASON1'], row['REASON2']) if usr_idx == 0 else (row['REASON2'], row['REASON1'])
-
-        if usr_skip or rec_skip or usr_skip == '1' or rec_skip == '1':
-            continue
-        if (usr_align and rec_align) or (usr_align == '1' and rec_align == '1'):
-            queue = 'MATCHES'
-        elif (not usr_align and not rec_align) or (usr_align == '0' and rec_align == '0'):
-            queue = 'RECOMMENDATIONS'
+            is_filtered = True
         else:
-            queue = 'AWAITING'
+            is_filtered = False
 
-        if queue != queue_requested:
-            continue
+        if get_filtered == True and is_filtered == True:
+            valid = True
+        elif get_filtered == False and is_filtered == False:
+            valid = True
+        else:
+            valid = False
 
-        recommendation_uid = uid2 if uid1 == uid else uid1
-        name = row['NAME2'] if uid1 == uid else row['NAME1']
+        if valid:
 
-        cards.append({
-            'recommendation_uid': recommendation_uid,
-            'name': name,
-            'score': score,
-            'reason':  usr_reason, 
-            'chat_enabled': usr_align and rec_align,
-            'user_align': usr_align,
-            'blocked_by_match' : rec_block, 
-            'blocked_by_user' : usr_block,
-            'rec_idx' : rec_idx,
-            'usr_idx' : usr_idx
-        })
+            usr_idx = 0 if uid == uid1 else 1
+            rec_idx = 1 - usr_idx
+
+            usr_align, rec_align = (row['ALIGN1'], row['ALIGN2']) if usr_idx == 0 else (row['ALIGN2'], row['ALIGN1'])
+            usr_skip, rec_skip = (row['SKIP1'], row['SKIP2']) if usr_idx == 0 else (row['SKIP2'], row['SKIP1'])
+            usr_block, rec_block = (row['BLOCK1'], row['BLOCK2']) if usr_idx == 0 else (row['BLOCK2'], row['BLOCK1'])
+            usr_reason, rec_reason = (row['REASON1'], row['REASON2']) if usr_idx == 0 else (row['REASON2'], row['REASON1'])
+
+            # Skip card if either user or recommended user has perviously clicked on skip
+            if usr_skip or rec_skip or usr_skip == '1' or rec_skip == '1':
+                continue
+
+            if (usr_align and rec_align) or (usr_align == '1' and rec_align == '1'):
+                queue = 'MATCHES'
+            elif (not usr_align and not rec_align) or (usr_align == '0' and rec_align == '0'):
+                queue = 'RECOMMENDATIONS'
+            else:
+                queue = 'AWAITING'
+
+            if queue != queue_requested:
+                continue
+
+            recommendation_uid = uid2 if uid1 == uid else uid1
+            name = row['NAME2'] if uid1 == uid else row['NAME1']
+
+            cards.append({
+                'recommendation_uid': recommendation_uid,
+                'name': name,
+                'score': score,
+                'reason':  usr_reason, 
+                'chat_enabled': usr_align and rec_align,
+                'user_align': usr_align,
+                'blocked_by_match' : rec_block, 
+                'blocked_by_user' : usr_block,
+                'rec_idx' : rec_idx,
+                'usr_idx' : usr_idx
+            })
 
     matching_connect.conn.commit()
     matching_connect.close()
@@ -925,7 +1024,6 @@ def live_filter(uid : str, new_filter : str):
             rec_idx = int(item["rec_idx"]) + 1
             usr_idx = int(item["usr_idx"]) + 1
         
-            
             if 'USER_REASON' in item:
                 usr_reason = item['USER_REASON']
                 rec_reason = item['REC_REASON']
@@ -1262,7 +1360,7 @@ def update_account():
 
     # Define expected fields and handle them
     allowed_fields = [
-        'password', 'name', 'phone', 'city', 'country', 'profession',
+        'password', 'name', 'phone', 'email', 'city', 'country', 'profession',
         'birth_city', 'birth_country', 'dob', 'tob', 'gender', 'hobbies'
     ]
 
@@ -1273,11 +1371,18 @@ def update_account():
             return jsonify({'error': 'Invalid phone number format'}), 400
         fields['PHONE'] = encrypt_sensitive_data(phone)
 
+    if 'email' in json_data:
+        email = json_data['email'].lower()
+        if not validate_email(email):
+            return jsonify({'error': 'Invalid email format'}), 400
+        fields['EMAIL'] = encrypt_sensitive_data(email)
+        fields['EMAIL_HASH'] = hash_email_sha256(email)
+
     if 'password' in json_data:
-        fields['PASSWORD'] = encrypt_sensitive_data(json_data['password'])
+        fields['PASSWORD'] = encrypt_password(json_data['password'])
 
     for field in allowed_fields:
-        if field in json_data and field not in ['phone', 'password']:  # Skip already handled fields
+        if field in json_data and field not in ['phone', 'email', 'password']:  # Skip already handled fields
             value = json_data[field]
             if isinstance(value, str) and value != '':
                 value = value.lower()
@@ -1325,6 +1430,8 @@ def update_account():
         profile_connect.cursor.execute(update_sql, values)
         profile_connect.conn.commit()
     except Exception as e:
+        if 'profile_connect' in locals():
+            profile_connect.close()
         log.error(f"Failed to update profile: {e}")
         return jsonify({'error': 'Database error during update'}), 500
     
@@ -1360,8 +1467,8 @@ def update_account():
                 # Determine the other user
                 other_uid = uid2 if uid1 == uid else uid1
                 
-                # Fetch other user's data using RDS
-                other_user_select_sql = f'SELECT UID, DOB, TOB, LAT, LONG, HOBBIES, GENDER, NAME FROM "{config.RDS_PROFILE_TABLE}" WHERE UID = ?'
+                # Fetch other user's data
+                other_user_select_sql = f'SELECT UID, DOB, TOB, LAT, LONG, HOBBIES, GENDER, NAME FROM {config.PROFILE_TABLE} WHERE UID = ?'
                 profile_connect.cursor.execute(other_user_select_sql, (other_uid,))
                 other_user = profile_connect.cursor.fetchone()
 
@@ -1382,10 +1489,12 @@ def update_account():
             else:
                 fetch = 'male'
 
-            recommended_uids = ['uid1', 'uid2', 'uid3']
-            uids_sql = "(" + ",".join(f"'{uid}'" for uid in recommended_uids) + ")"
-
-            select_sql = f"SELECT UID, DOB, TOB, LAT, LONG, HOBBIES, NAME FROM {config.PROFILE_TABLE} WHERE GENDER = '{fetch}' AND UID NOT IN {uids_sql}"
+            # Use the actual UIDs from existing matches to exclude them from new matches
+            if recommended_uids:
+                uids_sql = "(" + ",".join(f"'{uid_val}'" for uid_val in recommended_uids) + ")"
+                select_sql = f"SELECT UID, DOB, TOB, LAT, LONG, HOBBIES, NAME FROM {config.PROFILE_TABLE} WHERE GENDER = '{fetch}' AND UID NOT IN {uids_sql}"
+            else:
+                select_sql = f"SELECT UID, DOB, TOB, LAT, LONG, HOBBIES, NAME FROM {config.PROFILE_TABLE} WHERE GENDER = '{fetch}'"
             profile_connect.cursor.execute(select_sql)
 
             # Fetch all results
@@ -1400,17 +1509,29 @@ def update_account():
                 new_scores.append(score)
                 recommended_names.append(-1)
 
-            # SORT LIST AND GET TOP TEN MATCHES
-            sorted_pairs = sorted(zip(recommended_uids, new_scores, recommended_names), key=lambda x: x[1], reverse=True)
-            recommendations = sorted_pairs[:config.MAX_MATCHES]
-            insert_sql_matching = f"INSERT INTO {config.MATCHING_TABLE} (UID1, UID2, SCORE, CREATED, UPDATED, ALIGN1, ALIGN2, SKIP1, SKIP2, BLOCK1, BLOCK2, NAME1, NAME2) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            # SORT LIST AND GET TOP TEN MATCHES for new matches only
+            new_match_data = [(uid_val, score, name) for uid_val, score, name in zip(recommended_uids[len(previous_uids):], new_scores[len(previous_uids):], recommended_names[len(previous_uids):]) if uid_val not in previous_uids]
+            
+            if new_match_data:
+                sorted_pairs = sorted(new_match_data, key=lambda x: x[1], reverse=True)
+                recommendations = sorted_pairs[:config.MAX_MATCHES]
+                
+                insert_sql_matching = f"INSERT INTO {config.MATCHING_TABLE} (UID1, NAME1, UID2, NAME2, SCORE, CREATED, UPDATED, ALIGN1, ALIGN2, SKIP1, SKIP2, BLOCK1, BLOCK2, REASON1, REASON2, FILTERED) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 
-            timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-            for idx, id_pair in enumerate(recommendations):
-                if id_pair[0] not in previous_uids:
-                    matching_connect.cursor.execute(insert_sql_matching, (uid, id_pair[0], str(id_pair[1]), timestamp, timestamp, False, False, False, False, False, False, user_name, id_pair[-1]) )
+                timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+                for rec_uid, score, rec_name in recommendations:
+                    matching_connect.cursor.execute(insert_sql_matching, (uid, user_name, rec_uid, rec_name, str(score), timestamp, timestamp, False, False, False, False, False, False, 'Not Present', 'Not Present', False))
+            
             matching_connect.conn.commit()
             matching_connect.close()
+        
+        profile_connect.close()
+        
+        # Trigger async matching update similar to create() function
+        threading.Thread(target=run_async_task, args=(populate_matches(uid, gender),)).start()
+    else:
+        # Close connection if no matching score update was needed
+        profile_connect.close()
 
     return jsonify({'UID' : uid, 'error' : 'OK'}), 200
 

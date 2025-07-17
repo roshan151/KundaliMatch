@@ -139,12 +139,12 @@ filter_system_prompt : |
 
     You need to think from the perspective of both users and provide two Reasons for each match you recommend or a recommendation that you filter out.
     PRIMARY_USER_REASON : Why is this recommendation is a good match or not a good match for the user  
-            PRIMARY_USER_Reason will be displayed to the primary user on why the recommended card is a good match
-            Write this response in a way that you are talking to primary user. Do NOT refer primary user as a third person.
+            PRIMARY_USER_REASON will be displayed to the primary user on why the recommended card is a good match
+            Write this response in a way that you are talking to primary user. Do NOT refer primary user in third person.
 
     RECOMMENDED_USER_REASON : Why is primary user a good match or not a good match for recommended user? 
             RECOMMENDED_USER_REASON will be displayed to the recommeded card's user on why primary user is a good match.
-            Write this response in a way that you are talking to recommended user. Do NOT refer recommended user as a third person.
+            Write this response in a way that you are talking to recommended user. Do NOT refer recommended user in third person.
 
     Your response MUST be valid JSON with two keys - "Matched" and "Filtered".
     The value for both keys is dictionary of users with their UID as key and Reason to recommend or filter out as value.

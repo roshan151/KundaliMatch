@@ -181,6 +181,7 @@ class SimpleChatSystem:
             from backend import live_filter
             return live_filter(uid, query)
         except Exception as e:
+            log.error(f"Error applying filter: {str(e)}")
             return {
                 'RESPONSE': f"Error applying filter: {str(e)}",
                 'RECOMMENDATIONS': []

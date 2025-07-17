@@ -1,0 +1,34 @@
+{
+  "model_type": "BERT + LightGBM",
+  "bert_model": "all-MiniLM-L6-v2",
+  "embedding_dimension": 384,
+  "test_accuracy": 1.0,
+  "cv_mean_accuracy": 1.0,
+  "cv_std_accuracy": 0.0,
+  "mbti_types": [
+    "INTJ",
+    "INTP",
+    "ENTJ",
+    "ENTP",
+    "INFJ",
+    "INFP",
+    "ENFJ",
+    "ENFP",
+    "ISTJ",
+    "ISFJ",
+    "ESTJ",
+    "ESFJ",
+    "ISTP",
+    "ISFP",
+    "ESTP",
+    "ESFP"
+  ],
+  "training_timestamp": "2025-07-17T00:00:14.317619",
+  "data_source": "demo_generated",
+  "model_files": {
+    "lightgbm_model": "models/bert_lightgbm_model_20250717_000014.pkl",
+    "bert_config": "models/bert_config_20250717_000014.json",
+    "label_encoder": "models/label_encoder_20250717_000014.pkl",
+    "embeddings": "models/bert_embeddings_20250717_000014.npy"
+  }
+}
