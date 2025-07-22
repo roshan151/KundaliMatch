@@ -11,13 +11,15 @@ Building micorservices helps in decoupling the code, reduces package interdepend
 
 ## How to host services locally using Docker
 
-There are multiple `docker-compose.yml` files, Use the one that specified `DEPLOYMENT_ENV` as `local` for `backend-service`.
+Each microservice is hosted in its own docker container. Docker images installs required packages from `requirements.txt` file during build step, copies all required files, and runs handler `.py` file which exposes flask API endpoints to be pinged by otherservices. Each micorservice contains its own `Dockerfile`
+Multiple microservices are orchestrated together using a docker compose `.yml` file.
+There are multiple `docker-compose.yml` files in the repository, Use the one that specifies `DEPLOYMENT_ENV` as `local` for `backend-service`.
 
 Step 1: Install docker app `https://www.docker.com/get-started/` 
 
-Step 2: In docker app create API key: `docker login -u <username> -p <api-key>`
+Step 2: In docker app create API key and save it locally (Never Push an API key or secret to GIT).
 
-STEP 3: From terminal perform docker login using this api key: 
+Step 3: From terminal perform docker login using this api key: `docker login -u <username> -p <api-key>`
 
 Step 4: From terminal install docker compose: `sudo yum install -y docker`
 
@@ -32,13 +34,13 @@ Step 8: Check logs of a docker container: `docker logs <condtainer-id> -f`
 
 Step 9: Use curl commands to test backend endpoints, some example commands are present in file `/docs/test-commands.txt`. Make sure to use `localhost` address.
 
-Step 10: To stop running container `docker compose down`
+Step 10: To stop all running containers: `docker compose down`
 
 ### If not using docker compose or building single service container
 
 1. docker build -t docker-love-bhagya-backend .
 
-2. docker tag <current-name> <new-name/docker-repo-address>:latest
+2. docker tag <current-name> <docker-repo-address/new-name>:latest
 
 3. docker run --rm -p 8080:8080 <image-name>:latest
 
@@ -98,7 +100,7 @@ EOF
 
 1. docker build -t docker-love-bhagya-backend .
 
-2. docker tag <current-name> <new-name/docker-repo-address>:latest
+2. docker tag <current-name> <docker-repository-address/name>:latest
 
 3. docker build -t --platform linux/amd64 docker-love-bhagya-backend .
 

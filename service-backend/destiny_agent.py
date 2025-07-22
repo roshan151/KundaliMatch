@@ -279,6 +279,8 @@ Examples:
             return self.handle_hobby_chat(uid, user_input, history or [])
         elif chat_type == "user_initiated":  
             return self.handle_preference_chat(uid, user_input, history or [])
+        elif chat_type == "match_initiate":
+            return self.handle_match_chat(uid, user_input, history or [])
         else:
             raise ValueError(f"Invalid chat_type: {chat_type}")
 
@@ -423,17 +425,20 @@ Examples:
             # Apply filter using the LLM-generated filter statement
             filter_statement = llm_response.get('filter_statement', user_input)
             filter_result = self._apply_filter(uid, filter_statement)
+
+            # Its adding two exit messages so commenting it out
             
-            # Generate filter confirmation message
-            filter_responses = [
-                "I've applied the filter to your recommendations.",
-                "Your recommendations have been filtered as requested.",
-                "I've updated your matches based on your preferences.",
-                "Filter applied successfully to your recommendations."
-            ]
+            # # Generate filter confirmation message
+            # filter_responses = [
+            #     "I've applied the filter to your recommendations.",
+            #     "Your recommendations have been filtered as requested.",
+            #     "I've updated your matches based on your preferences.",
+            #     "Filter applied successfully to your recommendations."
+            # ]
             
-            base_message = random.choice(filter_responses)
-            response_message = f"{base_message}\n\n{filter_result['RESPONSE']}"
+            # base_message = random.choice(filter_responses)
+
+            response_message = f"{filter_result['RESPONSE']}"
             
             updated_history = history + [
                 {"role": "user", "content": user_input},
@@ -466,7 +471,7 @@ Examples:
         """Get user details from database"""
         try:
             profile_connect = SQLConnect(url = config.SQL_SERVICE_URL, port = config.SQL_SERVICE_PORT)
-            select_sql = f"SELECT UID, NAME, DOB, CITY, COUNTRY, HOBBIES, PROFESSION, GENDER, INITIATE_CHATS, PREFERENCE_CHATS FROM {config.PROFILE_TABLE} WHERE UID = '{uid}'"
+            select_sql = f"SELECT UID, NAME, DOB, CITY, COUNTRY, HOBBIES, PROFESSION, GENDER, INITIATE_CHATS, PREFERENCE_CHATS, QUESTION1, QUESTION2, QUESTION3 FROM {config.PROFILE_TABLE} WHERE UID = '{uid}'"
             profile_connect.cursor.execute(select_sql)
             result = profile_connect.cursor.fetchone()
 
