@@ -4,7 +4,9 @@ The backend consits of three live microservices - `service-backend`, `service-ku
 Building micorservices helps in decoupling the code, reduces package interdependancies, and promotes modularity where components like `service-kundali` can be easily replaced with one with better features. 
 
 `service-backend`: Hosted on port `8040`. Contains all endpoints needed by the frontend as well as the Destiny agent.
+
 `service-sqlite`: Hosted on port `8030`. Provides an endpoint `/execute`, use this endpoint to run SQL queries.
+
 `service-kundali`: Hosted on port `8000`. Provides a kundali score using input - date of birth, time of birth, and lat, long of birthplace.
 
 ## How to host services locally using Docker
@@ -12,41 +14,68 @@ Building micorservices helps in decoupling the code, reduces package interdepend
 There are multiple `docker-compose.yml` files, Use the one that specified `DEPLOYMENT_ENV` as `local` for `backend-service`.
 
 Step 1: Install docker app `https://www.docker.com/get-started/` 
+
 Step 2: In docker app create API key: `docker login -u <username> -p <api-key>`
+
 STEP 3: From terminal perform docker login using this api key: 
+
 Step 4: From terminal install docker compose: `sudo yum install -y docker`
-Step 5: While docker app is running, run docker build in root directory: `docker compose build`. This builds new docker images and needs to be done anytime there is a code change in one of the services.
+
+Step 5: While docker app is running, run docker build in root directory: `docker compose build`. This builds new docker images and needs to be done anytime 
+there is a code change in one of the services.
+
 Step 6: To run docker containers: `docker compose up -d`
+
 Step 7: Check running docker containers: `docker containers ls`
+
 Step 8: Check logs of a docker container: `docker logs <condtainer-id> -f`
+
 Step 9: Use curl commands to test backend endpoints, some example commands are present in file `/docs/test-commands.txt`. Make sure to use `localhost` address.
+
 Step 10: To stop running container `docker compose down`
 
 ### If not using docker compose or building single service container
+
 1. docker build -t docker-love-bhagya-backend .
+
 2. docker tag <current-name> <new-name/docker-repo-address>:latest
+
 3. docker run --rm -p 8080:8080 <image-name>:latest
 
 ## How to host services on ec2 instances:
 
 ### Key differences between local and EC2
+
 1. On ec2 proceed commands with `sudo`
+
 2. Pull images on EC2 from docker repository instead of building them like in local. These images still need to be build locally using `--platform linux/amd64` and then pushed to docker repository
 
 ## Install Docker on EC2:
+
 1. sudo yum install -y docker
+
 2. docker login -u <username> -p <api-key>
+
 3. sudo service docker start
+
 4. sudo docker pull docker.io/roshancodeitup/love-bhagya:latest
+
 5. sudo docker run --rm -p 8080:8080 docker.io/roshancodeitup/love-bhagya-backend-amd64:latest
 
 ## Install docker compose on EC2:
+
 1. Create new directory: `sudo mkdir -p /usr/local/lib/docker/cli-plugins`
+
 2. Install docker compose from url: `sudo curl -SL https://github.com/docker/compose/releases/download/v2.24.0/docker-compose-linux-x86_64 -o /usr/local/lib/docker/3. 3. cli-plugins/docker-compose`
+
 3. Change permissions for docker compose: `sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose`
+
 4. Check docker version: `sudo docker compose version`
+
 5. Change directory to /usr/home/ssm-user 
+
 6. Create docker-compose.yaml in EC2:
+
 ```
 sudo cat <<EOF > docker-compose.yml
 services:
@@ -62,12 +91,17 @@ services:
 EOF
 ```
 7. Pull images specified in docker compose: `docker pull <image-name>`
+
 8. Run containers: `docker compose -up -d`
 
 ### If not using docker compose or building single service container for EC2
+
 1. docker build -t docker-love-bhagya-backend .
+
 2. docker tag <current-name> <new-name/docker-repo-address>:latest
+
 3. docker build -t --platform linux/amd64 docker-love-bhagya-backend .
+
 4. docker run --rm -p 8080:8080 docker.io/library/docker-love-bhagya-backend:latest
 
 ## Hosting using NginX
