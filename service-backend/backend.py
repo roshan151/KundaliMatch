@@ -816,9 +816,9 @@ def live_filter(uid : str, new_filter : str):
                 if cond_3 or cond_4:
                     continue
 
-            update_query = f"UPDATE {config.MATCHING_TABLE} SET REASON{usr_idx} = ?, REASON{rec_idx} = ?, UPDATED = ?, FILTERED = 0 WHERE UID{usr_idx} = ? AND UID{rec_idx} = ?"
-            matching_connect.cursor.execute(update_query, (usr_reason, rec_reason, timestamp, uid, rec_uid))
-            log.info("Query successfully executed.")
+            update_query = f"UPDATE {config.MATCHING_TABLE} SET REASON{usr_idx} = ?, REASON{rec_idx} = ?, UPDATED = ?, FILTERED = ? WHERE UID{usr_idx} = ? AND UID{rec_idx} = ?"
+            matching_connect.cursor.execute(update_query, (usr_reason, rec_reason, timestamp, False, uid, rec_uid))
+            log.info(f"Query filtered in successfully: {update_query}")
 
         for item in filtered:
             
@@ -859,9 +859,9 @@ def live_filter(uid : str, new_filter : str):
                 if cond_3 or cond_4:
                     continue
 
-            update_query = f"UPDATE {config.MATCHING_TABLE} SET REASON{usr_idx} = ?, REASON{rec_idx} = ?, UPDATED = ?, FILTERED = 1 WHERE UID{usr_idx} = ? AND UID{rec_idx} = ?"
-            matching_connect.cursor.execute(update_query, (usr_reason, rec_reason, timestamp, uid, rec_uid))
-            log.info("Query successfully executed.")
+            update_query = f"UPDATE {config.MATCHING_TABLE} SET REASON{usr_idx} = ?, REASON{rec_idx} = ?, UPDATED = ?, FILTERED = ? WHERE UID{usr_idx} = ? AND UID{rec_idx} = ?"
+            matching_connect.cursor.execute(update_query, (usr_reason, rec_reason, timestamp, True, uid, rec_uid))
+            log.info(f"Query filtered out successfully: {update_query}")
 
         matching_connect.conn.commit()
         matching_connect.close()
@@ -930,36 +930,42 @@ def filter_cards(uid, recommendation_cards, new_filter : str = None, filter = Tr
     matches, filtered = [], []
     matches_and_filtered = {}
     
-    if filter and isinstance(user_filters, list) and len(user_filters) > 0:
-        try:
-            log.info(f'applying filter: {user_details},\n{enhanced_cards_llm}')
-            matches_and_filtered = filter_agent(user_details, enhanced_cards)
-            log.info(f'Filter applied. Result: {matches_and_filtered}')
+    # if filter and isinstance(user_filters, list) and len(user_filters) > 0:
+    try:
+        log.info(f'applying filter: {user_details},\n{enhanced_cards_llm}')
+        matches_and_filtered = filter_agent(user_details, enhanced_cards)
+        log.info(f'Filter applied. Result: {matches_and_filtered}')
 
-            for i in enhanced_cards:
-                if i['UID'] in matches_and_filtered['Matched'].keys():
-                    usr_reason, rec_reason = matches_and_filtered['Matched'][i['UID']][0], matches_and_filtered['Matched'][i['UID']][1]
-                    i['USER_REASON'] = usr_reason
-                    i['REC_REASON'] = rec_reason
-                    matches.append(i)
-
-                elif i['UID'] in matches_and_filtered['Filtered'].keys():
-                    usr_reason, rec_reason = matches_and_filtered['Filtered'][i['UID']][0], matches_and_filtered['Filtered'][i['UID']][1]
-                    i['USER_REASON'] = usr_reason
-                    i['REC_REASON'] = rec_reason
-                    filtered.append(i)
-
-        except Exception as e:
-            log.warning(f'Filter Failed: {e}')
-            filter_success = False
-
-    if not isinstance(user_filters, list) or len(user_filters) == 0 or filter == False or filter_success == False:
-        log.info(f'Skipping filter: Number of cards: {len(enhanced_cards)}, Filter: {filter}, filter success: {filter_success}')
-        matches, filtered, matches_and_filtered = [], [], {}
         for i in enhanced_cards:
-            i['USER_REASON'] = 'Not Present'
-            i['REC_REASON'] = 'Not Present'
-            matches.append(i)
+            if 'Matched' in matches_and_filtered.keys() and i['UID'] in matches_and_filtered['Matched'].keys() and len(matches_and_filtered['Matched'][i['UID']]) == 2:
+                usr_reason, rec_reason = matches_and_filtered['Matched'][i['UID']][0], matches_and_filtered['Matched'][i['UID']][1]
+                i['USER_REASON'] = usr_reason
+                i['REC_REASON'] = rec_reason
+                matches.append(i)
+
+            elif 'Filtered' in matches_and_filtered.keys() and i['UID'] in matches_and_filtered['Filtered'].keys() and len(matches_and_filtered['Filtered'][i['UID']]) == 2:
+                usr_reason, rec_reason = matches_and_filtered['Filtered'][i['UID']][0], matches_and_filtered['Filtered'][i['UID']][1]
+                i['USER_REASON'] = usr_reason
+                i['REC_REASON'] = rec_reason
+                filtered.append(i)
+
+            else:
+                i['USER_REASON'] = 'Not Present'
+                i['REC_REASON'] = 'Not Present'
+                filtered.append(i)
+
+
+    except Exception as e:
+        log.warning(f'Filter Failed: {e}')
+        filter_success = False
+
+    # if not isinstance(user_filters, list) or len(user_filters) == 0 or filter == False or filter_success == False:
+    #     log.info(f'Skipping filter: Number of cards: {len(enhanced_cards)}, Filter: {filter}, filter success: {filter_success}')
+    #     matches, filtered, matches_and_filtered = [], [], {}
+    #     for i in enhanced_cards:
+    #         i['USER_REASON'] = 'Not Present'
+    #         i['REC_REASON'] = 'Not Present'
+    #         matches.append(i)
                                  
     if new_filter:
 
@@ -975,7 +981,7 @@ async def update_filter(uid, user_filters_str: str, new_filter : str):
         user_filters_str = [i.replace(",", "").strip() for i in user_filters_str]
         user_filters_str = ','.join(user_filters_str)
 
-    elif isinstance(user_filters_str, str) and len(user_filters_str) > 0:
+    if isinstance(user_filters_str, str) and len(user_filters_str) > 0:
         updated_filters = user_filters_str + ',' + new_filter
     else:
         updated_filters = new_filter
@@ -1032,6 +1038,8 @@ def remove_filter():
 
         # Current recommendations queue
         recommended_cards = fetch_queue(uid, 'RECOMMENDATIONS')
+
+        log.info(f"Filtered out cards: {filtered_out_cards}")
         if len(filtered_out_cards) > 0:
             # Reapply new filters on currently filtered out cards
             matches, filtered, matches_and_filtered = filter_cards(uid, filtered_out_cards)
@@ -1083,8 +1091,8 @@ def remove_filter():
                         if cond_3 or cond_4:
                             continue
 
-                    update_query = f"UPDATE {config.MATCHING_TABLE} SET REASON{usr_idx} = ?, REASON{rec_idx} = ?, UPDATED = ?, FILTERED = 0 WHERE UID{usr_idx} = ? AND UID{rec_idx} = ?"
-                    matching_connect.cursor.execute(update_query, (usr_reason, rec_reason, timestamp, uid, rec_uid))
+                    update_query = f"UPDATE {config.MATCHING_TABLE} SET REASON{usr_idx} = ?, REASON{rec_idx} = ?, UPDATED = ?, FILTERED = ? WHERE UID{usr_idx} = ? AND UID{rec_idx} = ?"
+                    matching_connect.cursor.execute(update_query, (usr_reason, rec_reason, timestamp, False, uid, rec_uid))
 
         return {'RECOMMENDATIONS' : recommended_cards, 'RESPONSE' : 'Recommendations have been updated as per your request.', 'ERROR' : 'OK' }
         
@@ -1106,22 +1114,14 @@ def fetch_queue(uid, queue_requested, get_filtered = False):
         uid1 = row['UID1']
         uid2 = row['UID2']
         score = row['SCORE'], 
-        updated = row['UPDATED'], 
+        updated = row['UPDATED']
 
-        # Skip card if it has been previously filtered out
-        if (isinstance(row['FILTERED'], str)) and row['FILTERED'] == '1' or (isinstance(row['FILTERED'], bool) and row['FILTERED'] == True):
-            is_filtered = True
+        if get_filtered == False:
+            valid = True if row["FILTERED"] == False else False
         else:
-            is_filtered = False
-
-        if get_filtered == True and is_filtered == True:
-            valid = True
-        elif get_filtered == False and is_filtered == False:
-            valid = True
-        else:
-            valid = False
-
-        if valid:
+            valid = row["FILTERED"]
+        
+        if valid == True:
 
             usr_idx = 0 if uid == uid1 else 1
             rec_idx = 1 - usr_idx
@@ -1161,7 +1161,8 @@ def fetch_queue(uid, queue_requested, get_filtered = False):
                 'blocked_by_match' : rec_block, 
                 'blocked_by_user' : usr_block,
                 'rec_idx' : rec_idx,
-                'usr_idx' : usr_idx
+                'usr_idx' : usr_idx,
+                'filtered' : row["FILTERED"]
             }
             
             # Add question fields if user data is available
@@ -1240,8 +1241,10 @@ def get_profile(uid):
 
     profile_connect.close()
     filters = []
+    log.info(f"{type(result['FILTERS'])}, {len(result['FILTERS'])}")
     if isinstance(result['FILTERS'], str) and len(result['FILTERS']) > 0:
         filters = result['FILTERS'].split(',')
+
     # Convert image S3 paths to base64-encoded image data
     image_paths = result['IMAGES']
     image_path_list = [i.strip() for i in image_paths.split(',')]
@@ -1884,6 +1887,7 @@ def generate_chat_token(uid):
             secrets['TWILIO_API_SECRET'],
             identity=uid
         )
+        log.info(f"Generated TWILIO token: {token}")
 
         chat_grant = ChatGrant(service_sid=config.TWILIO_CHAT_SERVICE_SID)
         token.add_grant(chat_grant)
@@ -1941,10 +1945,9 @@ def get_conversation():
 
         matching_connect.cursor.execute(select_sql, (uid1, uid2, uid2, uid1))
         result = matching_connect.cursor.fetchone()
-
-        if result:
-            conversation_sid = result['CONVERSATION_SID']
-        else:
+        conversation_sid = result['CONVERSATION_SID']
+        log.info(f"COnversation SID: {conversation_sid}, {type(conversation_sid)}")
+        if conversation_sid is None:
             # Create new conversation
             conversation = client.conversations.v1.conversations.create(
                 friendly_name=config.TWILIO_SERVICE_NAME
@@ -1963,7 +1966,7 @@ def get_conversation():
                 SET CONVERSATION_SID = ? 
                 WHERE (UID1 = ? AND UID2 = ?) OR (UID1 = ? AND UID2 = ?)
             """
-            
+            log.info(f"Conversation SID created: {conversation_sid}")
             matching_connect.cursor.execute(update_sql, (conversation_sid, uid1, uid2, uid2, uid1))
             matching_connect.conn.commit()
 
