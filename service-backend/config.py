@@ -1,15 +1,24 @@
 class Config:
-    # Application Settings
+
+    # Profile configs
     MAX_IMAGES = 8
+    MAX_NOTIFICATIONS = 50
+
+    # Matching configs
     ALLOWED_FORMATS = {'jpeg', 'jpg', 'png'}
     KUNDALI_WEIGHT = 0.8
     PERSONAL_WEIGHT = 1-KUNDALI_WEIGHT
     TOTAL_GUN = 36
     MAX_MATCHES = 10
     SCORE_OUT_OF = 10
+
     MAX_GEOCODE_TIMEOUT = 15
+
+    # Destiny Configs
     MAX_DESTINY_CHAT = 15
-    MAX_NOTIFICATIONS = 50
+    MINIMUM_REASON_LENGTH = 5
+    LLM_NOT_FOUND = ['not present']
+    
 
     # SQLite Configuration
     PROFILE_TABLE = "PROFILE_DB"

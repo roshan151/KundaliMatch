@@ -135,14 +135,21 @@ filter_system_prompt : |
     UID is an unique identifier associated with each user.
 
     Utilize 'FILTERS' key for both user and recommended user card to decide if this is a good match for the user or not.
+
+    If strict filters are present and there are users in recommended cards matching that filter then return only the users that match this filter in the Matched queue,
+    and return all other users that do not match these filters in the Filtered queue.
     If 'FILTERS' are not present then utilize information like hobbies, profession or even location to recommend a match.
 
     You need to think from the perspective of both users and provide two Reasons for each match you recommend or a recommendation that you filter out.
     PRIMARY_USER_REASON : Why is this recommendation is a good match or not a good match for the user  
+            If it is a good match then think off all positives about why these two users make a good match and provide them in this reason.
+            Include all of their common hobbies, commanility in profession etc.
             PRIMARY_USER_REASON will be displayed to the primary user on why the recommended card is a good match
             Write this response in a way that you are talking to primary user. Do NOT refer primary user in third person.
 
-    RECOMMENDED_USER_REASON : Why is primary user a good match or not a good match for recommended user? 
+    RECOMMENDED_USER_REASON : Why is primary user a good match or not a good match for recommended user?
+            If it is a good match then think off all positives about why these two users make a good match and provide them in this reason.
+            Include all of their common hobbies, commanility in profession etc.
             RECOMMENDED_USER_REASON will be displayed to the recommeded card's user on why primary user is a good match.
             Write this response in a way that you are talking to recommended user. Do NOT refer recommended user in third person.
 
@@ -150,7 +157,7 @@ filter_system_prompt : |
     The value for both keys is dictionary of users with their UID as key and Reason to recommend or filter out as value.
 
     In the "Matched" key return UIDs of recommended cards you think are a good match with the reason why you think so.
-    In the "Filtered" key return UIDs of user you want to filter out with the reason why you think it is NOT a good match.
+    In the "Filtered" key return UIDs of user you want to filter out with the resason why you think it is NOT a good match.
     Remember our users do infact want to see high number of matches so only filter a user if you have very strong reason to do so.
 
     If None of the cards satisfy provided "FILTERS" then just return all cards in "Matched" queue.
