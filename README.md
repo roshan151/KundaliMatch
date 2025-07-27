@@ -1,6 +1,7 @@
 # Design
 
-The backend consits of three live microservices - `service-backend`, `service-kundali`, `service-sqlite`. Fourth one is currently work in progress - `service-mbti`. Each of these services run as a seperate docker container on an exclusive port. Frontend only communicates to `service-backend` and then `service-backend` communicates with `service-kundali` to get kundali score and `service-sqlite` to fetch and feed data to the SQL database.
+The backend consits of four live microservices - `service-backend`, `service-sqlite`, `service-mbti`, `service-kundali`. Each of these services run as a seperate docker container on an exclusive port. Frontend only communicates to `service-backend` and then `service-backend` communicates with `service-sqlite` to fetch and feed data to the SQL database, with `service-kundali` to get kundali score and `service-mbti` to get mbti personality type probabilities.
+
 Building micorservices helps in decoupling the code, reduces package interdependancies, and promotes modularity where components like `service-kundali` can be easily replaced with one with better features. 
 
 `service-backend`: Hosted on port `8040`. Contains all endpoints needed by the frontend as well as the Destiny agent.
@@ -8,6 +9,8 @@ Building micorservices helps in decoupling the code, reduces package interdepend
 `service-sqlite`: Hosted on port `8030`. Provides an endpoint `/execute`, use this endpoint to run SQL queries.
 
 `service-kundali`: Hosted on port `8000`. Provides a kundali score using input - date of birth, time of birth, and lat, long of birthplace.
+
+`service-mbti` : Hosted on port `8010`. Given all text inputs from user, provides an MBTI personality type for the user.
 
 ## How to host services locally using Docker
 
