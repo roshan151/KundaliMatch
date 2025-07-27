@@ -32,6 +32,8 @@ class Config:
     # Service Configuration
     KUNDALI_SERVICE_URL = "http://kundali-service"
     KUNDALI_SERVICE_PORT = "8000"
+    MBTI_SERVICE_URL = "http://mbti-service"
+    MBTI_SERVICE_PORT = "8010"
 
     SQL_SERVICE_URL = "http://sql-service" #"http://localhost"#
     SQL_SERVICE_PORT = "8030"

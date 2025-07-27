@@ -50,16 +50,18 @@ class FilterAgent:
         with open(config.PROMPTS_YAML, "r") as file:
             prompts = yaml.safe_load(file)
             
-        filter_prompt = prompts['filter_system_prompt'].format(
+        filter_user_prompt = prompts['filter_user_prompt'].format(
             user_details=user_details, 
             recommended_cards=enhanced_cards
         )
         
-        self.log.info(f"Sending prompt to LLM (first 200 chars): {filter_prompt[:200]}...")
+        self.log.info(f"Sending prompt to LLM (first 200 chars): {filter_user_prompt[:200]}...")
 
         try:
             # Create message with clear JSON instruction
-            messages = [SystemMessage(content=filter_prompt)]
+            messages = [SystemMessage(content=prompts['filter_system_prompt'])]
+
+            messages.append(HumanMessage(content=filter_user_prompt))
             
             # Get response from LLM (configured for JSON output)
             response = self.llm(messages)

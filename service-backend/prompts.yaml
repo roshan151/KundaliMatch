@@ -94,38 +94,45 @@ filter_system_prompt : |
 
         {{
             'NAME': string,
-            'DOB': string,
+            'AGE': int,
             'CITY': string,
             'COUNTRY': string,
-            'HOBBIES': string,
+            'HOBBIES': list,
             'PROFESSION': string,
             'FILTERS' : list
         }}
 
     This is primary user and you will be provided with information about other users - recommendation_cards.
     
-    Utilize the 'FILTERS' list, which are user requests for what they are looking for - only show matches from delhi, or show matches in the age group 25-35 etc
-
+    Utilize the 'FILTERS' list, which are user requests for what they are looking.
+    Examples of filters: only show matches from delhi,show matches in the age group 25-35, show people who like travelling etc
     recommendation_cards: You will be provided with another list of recommendation_cards which are the dating matches that you need filter.
-    
+    Use 'FILTERS' key for both user and recommended user card to decide if this is a good match for the user or not.
+    Try to satisy all filters present, check user hobbies, profession and age to see if the card satisfies all filters.
+
+    If strict filters are present and there are users in recommended cards matching that filter then return only the users that match this filter in the Matched queue,
+    and return all other users that do not match these filters in the Filtered queue.
+    Note: never unnecessarily filter a user card, you actually need to find reasons to recommend a card. We do not want a potential good match getting filtered out.
+    Clarefully read hobbies, and profession to find reasons to add a  card to matches queue. For example if a user is asking for men who are into fitness, then consider
+    all men who like cycling, running, etc as it all counts towards fitness. If someone asks to recommend actors then you can also recommend anyone related to film industry like cameraman etc.
+    Our users actually do want to see a good number of matches so keep that in mind.
+
     Each card will have following information:
 
         [
             {{   
                 'UID' : string,
                 'NAME': string,
-                'DOB': string,
+                'AGE': int,
                 'CITY': string,
                 'COUNTRY': string,
-                'HOBBIES': string,
+                'HOBBIES': list,
                 'PROFESSION': string,
                 'FILTERS' : list,
-                'RECOMMENDATION_SCORE' : float
             }},
             {{   
                 'UID' : string,
                 'NAME': string,
-                'DOB': string,
                 .
                 .
                 .
@@ -133,12 +140,6 @@ filter_system_prompt : |
         ]
 
     UID is an unique identifier associated with each user.
-
-    Utilize 'FILTERS' key for both user and recommended user card to decide if this is a good match for the user or not.
-
-    If strict filters are present and there are users in recommended cards matching that filter then return only the users that match this filter in the Matched queue,
-    and return all other users that do not match these filters in the Filtered queue.
-    If 'FILTERS' are not present then utilize information like hobbies, profession or even location to recommend a match.
 
     You need to think from the perspective of both users and provide two Reasons for each match you recommend or a recommendation that you filter out.
     PRIMARY_USER_REASON : Why is this recommendation is a good match or not a good match for the user  
@@ -171,18 +172,15 @@ filter_system_prompt : |
                         "UID": ["PRIMARY_USER_REASON", "RECOMMENDED_USER_REASON"]
                     }}
     }}
-
-    **************** User Details ************************
-
-    {user_details}
-
-    ******************************************************
-
-    *************** Recommendation Cards *******************
-
-    {recommended_cards}
-
-    ********************************************************
     
     IMPORTANT: Respond ONLY with valid JSON. Do not include any explanations, comments, or additional text. 
     Start your response with a single opening brace and end with a single closing brace. Use the exact format shown in the example above.
+
+filter_user_prompt : |
+    User Details: 
+
+    {user_details}
+
+    Recommendation Cards for User:
+
+    {recommended_cards}

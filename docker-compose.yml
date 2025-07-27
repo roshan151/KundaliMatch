@@ -17,6 +17,11 @@ services:
     ports:
       - "8000:8000"
 
+  mbti-service:
+    build: ./service-mbti
+    ports:
+      - "8010:8010"
+
   sql-service:
     build: ./service-sqlite
     ports:

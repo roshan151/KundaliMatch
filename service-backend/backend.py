@@ -8,6 +8,7 @@ import base64
 import asyncio
 import requests
 import boto3
+import copy
 import hashlib
 import pandas as pd
 from uuid import uuid4
@@ -16,7 +17,7 @@ import threading
 import logging as log
 from psycopg2 import sql
 from flask import send_file
-from datetime import datetime
+from datetime import datetime, date
 
 from twilio.jwt.access_token.grants import ChatGrant
 from twilio.jwt.access_token import AccessToken
@@ -264,6 +265,29 @@ def get_kundali_score():
 def get_personal_score(hobbies, row):
     return random.uniform(0.1, 0.9)
 
+def get_mbti_type(text):
+    try:
+        log.info(f'Input data: {text}')
+        response = requests.post(   
+                        f'{config.MBTI_SERVICE_URL}:{config.MBTI_SERVICE_PORT}/predict', 
+                            headers = {'content-type' : 'application/json'},
+                            json = {'text' : text}
+                        )
+        if response.status_code == 200:
+            response_json = response.json()
+            if 'result' in response_json:
+                mbti_type = response_json['result']
+
+                log.info(f'MBTI type: {mbti_type}')
+                return mbti_type
+        else:
+            log.info(f'MBTI Service errored: {response._content}')
+        
+    except Exception as e:
+        log.warning(f'Unable to get response from MBTI service: {e}')
+
+    return {}
+
 def compute_score(user_1 : list, user_2 : list):
     input_kundali = {
             'DOB1' : user_1['DOB'],
@@ -363,7 +387,7 @@ def create():
     # Setup SQLite connection
     profile_connect = SQLConnect(url = config.SQL_SERVICE_URL, port = config.SQL_SERVICE_PORT)
     
-    insert_sql = f"INSERT INTO {config.PROFILE_TABLE} (UID, PASSWORD, NAME, PHONE, EMAIL, EMAIL_HASH, CITY, COUNTRY, PROFESSION, BIRTH_CITY, BIRTH_COUNTRY, DOB, TOB, GENDER, HOBBIES, LAT, LONG, IMAGES, CREATED, LOGIN, FILTERS, QUESTION1, QUESTION2, QUESTION3) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    insert_sql = f"INSERT INTO {config.PROFILE_TABLE} (UID, PASSWORD, NAME, PHONE, EMAIL, EMAIL_HASH, CITY, COUNTRY, PROFESSION, BIRTH_CITY, BIRTH_COUNTRY, DOB, TOB, GENDER, HOBBIES, LAT, LONG, IMAGES, CREATED, LOGIN, FILTERS, QUESTION1, QUESTION2, QUESTION3, MBTI, MBTI_DESCRIPTION, MBTI_RESPONSE) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     uid = str(uuid4())
     
     # Encrypt sensitive data
@@ -387,6 +411,23 @@ def create():
     question1 = json.dumps(json_data.get('Question1', {})) if json_data.get('Question1') else ''
     question2 = json.dumps(json_data.get('Question2', {})) if json_data.get('Question2') else ''
     question3 = json.dumps(json_data.get('Question3', {})) if json_data.get('Question3') else ''
+
+    all_text = json_data.get('Question1', {}).get('Answer', '') + '\n' + json_data.get('Question2', {}).get('Answer', '') + '\n' +json_data.get('Question3', {}).get('Answer', '')
+    mbti_type_response = get_mbti_type(all_text)
+
+    if 'mbti_type' in mbti_type_response:
+        mbti_type = mbti_type_response['mbti_type']
+    else:
+        mbti_type = None
+
+    if 'description' in mbti_type_response:
+        mbti_description = mbti_type_response['description']
+    else:
+        mbti_description = ''
+    
+    mbti_response = json.dumps(mbti_type_response)
+
+    log.info(f'MBTI Type recieved: {mbti_type}')
 
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
 
@@ -423,7 +464,7 @@ def create():
     else:
         hobbies = ''
 
-    profile_connect.cursor.execute(insert_sql, (uid, password, name, encrypted_phone, encrypted_email, hashed_email, city, country, profession, birth_city, birth_country, dob, tob, gender, hobbies, lat, long, images, timestamp, timestamp, '', question1, question2, question3))
+    profile_connect.cursor.execute(insert_sql, (uid, password, name, encrypted_phone, encrypted_email, hashed_email, city, country, profession, birth_city, birth_country, dob, tob, gender, hobbies, lat, long, images, timestamp, timestamp, '', question1, question2, question3, mbti_type, mbti_description, mbti_response))
     profile_connect.conn.commit()
 
     # Asynchronous task to identify matches for user and populate to matching table.
@@ -662,7 +703,7 @@ def login():
 
     filters = []
     if isinstance(result['FILTERS'], str) and len(result['FILTERS']) > 0:
-        filters = result['FILTERS'].split(',')
+        filters = result['FILTERS'].split(';%;')
     return jsonify({
         'LOGIN': 'SUCCESSFUL', 
         'UID': uid, 
@@ -681,7 +722,7 @@ def get_user_data(uid):
     """
     # Setup SQLite connection
     profile_connect = SQLConnect(url = config.SQL_SERVICE_URL, port = config.SQL_SERVICE_PORT)
-    select_sql = f"SELECT NAME, DOB, CITY, COUNTRY, IMAGES, HOBBIES, PROFESSION, GENDER, NOTIFICATIONS, EMAIL, PHONE, FILTERS, QUESTION1, QUESTION2, QUESTION3 FROM {config.PROFILE_TABLE} WHERE UID = '{uid}'"
+    select_sql = f"SELECT NAME, DOB, CITY, COUNTRY, IMAGES, HOBBIES, PROFESSION, GENDER, NOTIFICATIONS, EMAIL, PHONE, FILTERS, QUESTION1, QUESTION2, QUESTION3, MBTI, MBTI_DESCRIPTION FROM {config.PROFILE_TABLE} WHERE UID = '{uid}'"
     profile_connect.cursor.execute(select_sql)
     result = profile_connect.cursor.fetchone()
 
@@ -692,7 +733,7 @@ def get_user_data(uid):
     image_path_list = [i.strip() for i in str(result['IMAGES']).split(',')]
     filters = []
     if isinstance(result['FILTERS'], str) and len(result['FILTERS']) > 0:
-        filters = result['FILTERS'].split(',')
+        filters = result['FILTERS'].split(';%;')
 
     # Process question-answer pairs
     question1 = {}
@@ -733,6 +774,8 @@ def get_user_data(uid):
         'Question1': question1,
         'Question2': question2,
         'Question3': question3,
+        'MBTI': result['MBTI'],
+        'MBTI_DESCRIPTION' : result['MBTI_DESCRIPTION'], 
         'ERROR': 'OK'
     }
 
@@ -867,6 +910,12 @@ def live_filter(uid : str, new_filter : str):
         matching_connect.close()
 
         return {'RECOMMENDATIONS' : recommendations, 'RESPONSE' : 'Recommendations have been updated as per your request.' }
+
+def calculate_age(dob_str):
+    dob = datetime.strptime(dob_str, "%Y-%m-%d").date()
+    today = date.today()
+    age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+    return age
     
 def filter_cards(uid, recommendation_cards, new_filter : str = None, filter = True):
     log.info(f'New Filter: {new_filter}')
@@ -879,17 +928,27 @@ def filter_cards(uid, recommendation_cards, new_filter : str = None, filter = Tr
     user_filters_str = user_details['FILTERS']
 
     if isinstance(user_filters_str, str):
-        user_filters = user_filters_str.split(',')
+        user_filters = user_filters_str.split(';%;')
     elif isinstance(user_filters_str, list) and len(user_filters_str) > 0:
         user_filters = user_filters_str[:]
     else:
         user_filters = []
 
+    # Remove information that is not required from LLM's context window
     user_details.pop('EMAIL', None)
     user_details.pop('PHONE', None)
     user_details.pop('ERROR', None)
     user_details.pop('UID', None)
     user_details.pop('IMAGES', None)
+    user_details.pop('Question1')
+    user_details.pop('Question2')
+    user_details.pop('Question3')
+    dob = user_details['DOB']
+    user_details.pop('DOB')
+    user_details.pop('MBTI')
+    user_details.pop('MBTI_DESCRIPTION')
+    user_details['AGE'] = calculate_age(str(dob))
+    user_details['HOBBIES'] = user_details['HOBBIES'].split(',')
 
     if new_filter and isinstance(new_filter, str) and len(new_filter) > 0:
         user_filters.append(new_filter)
@@ -910,30 +969,39 @@ def filter_cards(uid, recommendation_cards, new_filter : str = None, filter = Tr
         card_details.pop('ERROR', None)
         card_details.pop('IMAGES', None)
         card_details['UID'] = rec_uid
+
         if isinstance(card["score"],tuple):
             score = card["score"][0]
         else:
             score = card["score"]
+
+        dob = card_details['DOB']
+        card_llm = copy.deepcopy(card_details)
+        card_llm.pop('DOB')
+        card_llm['HOBBIES'] = card_llm['HOBBIES'].split(',')
+        card_llm['AGE'] = calculate_age(str(dob))
+
+        # Not sending user questions and answers to LLM to save context window
+        card_llm.pop('Question1')
+        card_llm.pop('Question2')
+        card_llm.pop('Question3')
+        card_llm.pop('MBTI')
+        card_llm.pop('MBTI_DESCRIPTION')
+        enhanced_cards_llm.append(card_llm)
+
         card_details['RECOMMENDATION_SCORE'] = score
         card_details["rec_idx"] = card["rec_idx"]
         card_details["usr_idx"] = card["usr_idx"]
         enhanced_cards.append(card_details)
-        
-        # Not sending user questions and answers to LLM to save context window
-        card_details.pop('QUESTION1', None)
-        card_details.pop('QUESTION2', None)
-        card_details.pop('QUESTION3', None)
-        enhanced_cards_llm.append(card_details)
 
     log.info(f'Cards to filter: {len(enhanced_cards)}')
-    filter_success = True
     matches, filtered = [], []
     matches_and_filtered = {}
     
     # if filter and isinstance(user_filters, list) and len(user_filters) > 0:
     try:
         log.info(f'applying filter: {user_details},\n{enhanced_cards_llm}')
-        matches_and_filtered = filter_agent(user_details, enhanced_cards)
+        matches_and_filtered = filter_agent(user_details, enhanced_cards_llm)
         log.info(f'Filter applied. Result: {matches_and_filtered}')
 
         for i in enhanced_cards:
@@ -978,11 +1046,11 @@ def filter_cards(uid, recommendation_cards, new_filter : str = None, filter = Tr
 async def update_filter(uid, user_filters_str: str, new_filter : str):
 
     if isinstance(user_filters_str, list) and len(user_filters_str) > 0:
-        user_filters_str = [i.replace(",", "").strip() for i in user_filters_str]
-        user_filters_str = ','.join(user_filters_str)
+        user_filters_str = [i.replace(";%;", "").strip() for i in user_filters_str]
+        user_filters_str = ';%;'.join(user_filters_str)
 
     if isinstance(user_filters_str, str) and len(user_filters_str) > 0:
-        updated_filters = user_filters_str + ',' + new_filter
+        updated_filters = user_filters_str + ';%;' + new_filter
     else:
         updated_filters = new_filter
 
@@ -1019,7 +1087,7 @@ def remove_filter():
 
     filters = []
     if isinstance(result['FILTERS'], str) and len(result['FILTERS']) > 0:
-        filters = result['FILTERS'].split(',')
+        filters = result['FILTERS'].split(';%;')
     
     filters = [i.strip().lower() for i in filters]
 
@@ -1027,7 +1095,7 @@ def remove_filter():
         filters.remove(filter.lower())
 
         # Update filters in the database
-        updated_filters = ','.join(filters)
+        updated_filters = ';%;'.join(filters)
         query = f"UPDATE {config.PROFILE_TABLE} SET FILTERS = ? WHERE UID = ?"
         profile_connect.cursor.execute(query, (updated_filters, uid))
         profile_connect.conn.commit()
@@ -1235,7 +1303,7 @@ def get_profile(uid):
 
     # Setup SQLite connection
     profile_connect = SQLConnect(url = config.SQL_SERVICE_URL, port = config.SQL_SERVICE_PORT)
-    select_sql = f"SELECT UID, NAME, DOB, CITY, COUNTRY, IMAGES, HOBBIES, PROFESSION, GENDER, FILTERS, QUESTION1, QUESTION2, QUESTION3 FROM {config.PROFILE_TABLE} WHERE UID = '{uid}'"
+    select_sql = f"SELECT UID, NAME, DOB, CITY, COUNTRY, IMAGES, HOBBIES, PROFESSION, GENDER, FILTERS, QUESTION1, QUESTION2, QUESTION3, MBTI, MBTI_DESCRIPTION FROM {config.PROFILE_TABLE} WHERE UID = '{uid}'"
     profile_connect.cursor.execute(select_sql)
     result = profile_connect.cursor.fetchone()
 
@@ -1243,7 +1311,7 @@ def get_profile(uid):
     filters = []
     log.info(f"{type(result['FILTERS'])}, {len(result['FILTERS'])}")
     if isinstance(result['FILTERS'], str) and len(result['FILTERS']) > 0:
-        filters = result['FILTERS'].split(',')
+        filters = result['FILTERS'].split(';%;')
 
     # Convert image S3 paths to base64-encoded image data
     image_paths = result['IMAGES']
