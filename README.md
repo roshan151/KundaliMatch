@@ -1,10 +1,14 @@
 # Design
 
-The backend consits of four live microservices - `service-backend`, `service-sqlite`, `service-mbti`, `service-kundali`. Each of these services run as a seperate docker container on an exclusive port. Frontend only communicates to `service-backend` and then `service-backend` communicates with `service-sqlite` to fetch and feed data to the SQL database, with `service-kundali` to get kundali score and `service-mbti` to get mbti personality type probabilities.
+The backend consits of five live microservices - `service-backend`,`service-frontend`, `service-sqlite`, `service-mbti`, `service-kundali`. Each of these services run as a seperate docker container on an exclusive port. Frontend only communicates to `service-backend` and then `service-backend` communicates with `service-sqlite` to fetch and feed data to the SQL database, with `service-kundali` to get kundali score and `service-mbti` to get mbti personality type probabilities.
 
 Building micorservices helps in decoupling the code, reduces package interdependancies, and promotes modularity where components like `service-kundali` can be easily replaced with one with better features. 
 
+## Micorservices Description
+
 `service-backend`: Hosted on port `8040`. Contains all endpoints needed by the frontend as well as the Destiny agent.
+
+`service-frontend`: Hosted on port `8080`. Contains react code for the webapp frontend that utilizes above backend.
 
 `service-sqlite`: Hosted on port `8030`. Provides an endpoint `/execute`, use this endpoint to run SQL queries.
 
@@ -121,4 +125,9 @@ Adding certs: https://certbot.eff.org/instructions?ws=webproduct&os=pip -->
 ## Encryption + Security June 14th
 Run dockerfile with aws credentials (.env is removed) - credentials + secrets manager
 docker run --rm -p 8080:8080 -v ~/.aws:/root/.aws:ro -e AWS_DEFAULT_REGION=us-east-2
+
+## Running frontend on its own
+
+1. npm run build
+2. npm run dev
 
