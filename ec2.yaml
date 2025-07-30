@@ -1,0 +1,29 @@
+services:
+  frontend-service:
+    image: docker.io/roshancodeitup/aligned-frontend-amd64:latest
+    ports:
+      - 8080:8080
+    depends_on:
+      - backend-service
+      
+  backend-service:
+    image: docker.io/roshancodeitup/destiny-match-backend-service-amd64:latest
+    ports:
+      - "8060:8060"
+    depends_on:
+      - kundali-service
+
+  kundali-service:
+    image: docker.io/roshancodeitup/destiny-match-kundali-service-amd64:latest
+    ports:
+      - "8000:8000"
+
+  sql-service:
+    image: docker.io/roshancodeitup/destiny-match-sql-service-amd64:latest
+    ports:
+      - "8030:8030"
+
+  mbti-service:
+    image: docker.io/roshancodeitup/destiny-match-mbti-service-amd64:latest
+    ports:
+      - "8010:8010"

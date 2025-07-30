@@ -16,7 +16,7 @@ from PIL import Image
 import threading
 import logging as log
 from psycopg2 import sql
-from flask import send_file
+from flask import send_file, make_response
 from datetime import datetime, date
 
 from twilio.jwt.access_token.grants import ChatGrant
@@ -31,6 +31,7 @@ from urllib.parse import urlparse
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 from cryptography.fernet import Fernet
+from urllib.parse import unquote
 
 
 from destiny_agent import chat_flow, FilterAgent
@@ -2056,6 +2057,38 @@ def add_cors_headers(response):
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, PUT, DELETE"
     response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
     return response
+
+@app.route('/image/<path:s3_key>', methods=['GET'])
+def serve_image(s3_key):
+    """
+    Serve images from S3 through backend proxy to avoid exposing AWS credentials to frontend
+    """
+    try:
+        # Decode URL-encoded key
+        decoded_key = unquote(s3_key)
+        
+        # Get image from S3
+        s3_object = s3.get_object(Bucket=BUCKET_NAME, Key=decoded_key)
+        image_data = s3_object['Body'].read()
+        
+        # Determine content type from file extension
+        content_type = 'image/jpeg'  # default
+        if decoded_key.lower().endswith('.png'):
+            content_type = 'image/png'
+        elif decoded_key.lower().endswith('.gif'):
+            content_type = 'image/gif'
+        elif decoded_key.lower().endswith('.webp'):
+            content_type = 'image/webp'
+        
+        # Create response with proper headers
+        response = make_response(image_data)
+        response.headers.set('Content-Type', content_type)
+        response.headers.set('Cache-Control', 'public, max-age=3600')  # Cache for 1 hour
+        return response
+        
+    except Exception as e:
+        log.error(f"Error serving image {s3_key}: {e}")
+        return jsonify({'error': 'Image not found'}), 404
 
 if __name__ == '__main__':
     

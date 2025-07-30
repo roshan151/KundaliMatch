@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
-import { getSignedS3Url } from '../lib/utils';
+
+// Backend API base URL
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8040';
 
 interface S3Assets {
   logo: string | null;
@@ -24,21 +26,15 @@ export const useS3Assets = () => {
       try {
         setLoading(true);
         
-        const [logo, loginBackground, chatBackground, contentBackground] = await Promise.all([
-          getSignedS3Url('frontend/logo.png'),
-          getSignedS3Url('frontend/login_page_bg.png'),
-          getSignedS3Url('frontend/chat_background.png'),
-          getSignedS3Url('frontend/content_background.png'),
-        ]);
-
+        // Use backend image proxy endpoints instead of direct S3 access
         setAssets({
-          logo,
-          loginBackground,
-          chatBackground,
-          contentBackground,
+          logo: `${API_BASE_URL}/image/frontend/logo.png`,
+          loginBackground: `${API_BASE_URL}/image/frontend/login_page_bg.png`,
+          chatBackground: `${API_BASE_URL}/image/frontend/chat_background.png`,
+          contentBackground: `${API_BASE_URL}/image/frontend/content_background.png`,
         });
       } catch (err) {
-        console.error('Error loading S3 assets:', err);
+        console.error('Error loading assets:', err);
         setError('Failed to load assets');
       } finally {
         setLoading(false);

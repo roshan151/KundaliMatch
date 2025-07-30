@@ -13,6 +13,8 @@ RUN npm install
 # Copy all files
 COPY . .
 
+RUN npm install --save-dev terser
+
 # Build the application
 RUN npm run build
 

@@ -18,7 +18,7 @@ import React from "react";
 import { User as UserType, Notification } from "../types";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from "@/components/ui/carousel";
-import { getSignedS3Url, extractS3Key } from "@/lib/utils";
+import { getImageUrl, extractS3Key } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { useS3Assets } from "../hooks/useS3Assets";
 import { useChatContext } from "../contexts/ChatContext";
@@ -146,22 +146,15 @@ const Dashboard = ({ userUID, setIsLoggedIn, onLogout, notifications = [] }: Das
       const data = await response.json();
       console.log(`Received profile data for ${uid}:`, data);
 
-      // Generate signed URLs for all images
-      if (data.IMAGES || data.images) {
-        const images = data.IMAGES || data.images;
-        const signedUrls = await Promise.all(
-          images.map(async (url: string) => {
-            const key = extractS3Key(url);
-            if (key) {
-              const signedUrl = await getSignedS3Url(key);
-              return signedUrl || url; // Fallback to original URL if signed URL generation fails
-            }
-            return url;
-          })
-        );
-        data.IMAGES = signedUrls;
-        data.images = signedUrls;
-      }
+              // Generate backend proxy URLs for all images
+        if (data.IMAGES || data.images) {
+          const images = data.IMAGES || data.images;
+          const proxyUrls = images.map((url: string) => {
+            return getImageUrl(url); // Use backend proxy for secure image access
+          });
+          data.IMAGES = proxyUrls;
+          data.images = proxyUrls;
+        }
 
       return data;
     } catch (error) {

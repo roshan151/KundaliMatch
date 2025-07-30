@@ -20,7 +20,7 @@ import {
   Filter,
   X
 } from "lucide-react";
-import { getSignedS3Url, extractS3Key } from "@/lib/utils";
+import { getImageUrl, extractS3Key } from "@/lib/utils";
 import { config } from "@/config/api";
 import { useProfileContext } from "../contexts/ProfileContext";
 
@@ -97,21 +97,14 @@ const Profile = ({ onEdit, cachedProfileData, isLoadingProfile }: ProfileProps) 
     setIsLoading(false);
   }, [cachedProfileData, contextProfileData]);
 
-  const processImages = async (images: string[]) => {
+  const processImages = (images: string[]) => {
     if (!images || images.length === 0) return;
 
-    const signedUrls = await Promise.all(
-      images.map(async (url) => {
-        const key = extractS3Key(url);
-        if (key) {
-          const signedUrl = await getSignedS3Url(key);
-          return signedUrl || url; // Fallback to original URL if signed URL generation fails
-        }
-        return url;
-      })
-    );
+    const proxyUrls = images.map((url) => {
+      return getImageUrl(url); // Use backend proxy for secure image access
+    });
 
-    setSignedImageUrls(signedUrls);
+    setSignedImageUrls(proxyUrls);
   };
 
   // Show loading if we're explicitly loading profile data

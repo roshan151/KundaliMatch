@@ -1,39 +1,42 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
-import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { S3_CONFIG } from "../config/s3";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-// Initialize S3 client
-const s3Client = new S3Client({
-  region: S3_CONFIG.REGION,
-  credentials: {
-    accessKeyId: S3_CONFIG.ACCESS_ID,
-    secretAccessKey: S3_CONFIG.ACCESS_KEY
-  }
-});
+// Backend API base URL
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8040';
 
-// Function to get signed URL for an S3 object
-export const getSignedS3Url = async (key: string) => {
+// Function to get image URL through backend proxy (more secure than direct S3 access)
+export const getImageUrl = (s3Url: string): string => {
   try {
-    const command = new GetObjectCommand({
-      Bucket: S3_CONFIG.BUCKET,
-      Key: key
-    });
-    const signedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 }); // URL expires in 1 hour
-    return signedUrl;
+    // Extract S3 key from full S3 URL
+    const key = extractS3Key(s3Url);
+    if (key) {
+      // Use backend image proxy endpoint
+      return `${API_BASE_URL}/image/${encodeURIComponent(key)}`;
+    }
+    return s3Url; // Fallback to original URL
   } catch (error) {
-    console.error('Error generating signed URL:', error);
-    return null;
+    console.error('Error generating image URL:', error);
+    return s3Url;
   }
 };
 
 // Function to extract key from S3 URL
-export const extractS3Key = (url: string) => {
+export const extractS3Key = (url: string): string | null => {
   const match = url.match(/amazonaws\.com\/(.+)/);
   return match ? match[1] : null;
+};
+
+// Legacy function for backward compatibility (now uses backend proxy)
+export const getSignedS3Url = async (key: string): Promise<string | null> => {
+  try {
+    // Use backend image proxy instead of direct S3 access
+    return `${API_BASE_URL}/image/${encodeURIComponent(key)}`;
+  } catch (error) {
+    console.error('Error generating image URL:', error);
+    return null;
+  }
 };
