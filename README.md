@@ -22,7 +22,7 @@ Each microservice is hosted in its own docker container. Docker images installs 
 Multiple microservices are orchestrated together using a docker compose `.yml` file.
 There are multiple `docker-compose.yml` files in the repository, Use the one that specifies `DEPLOYMENT_ENV` as `local` for `backend-service`.
 
-IMPORTANT: Before starting make sure to create a `.env` file with `API KEYS` and `SECRETS` locally.
+IMPORTANT: Before starting make sure to create a `.env` file with `API KEYS` and `SECRETS` locally inside the `service-backend` container.
 
 Step 1: Install docker app `https://www.docker.com/get-started/` 
 
@@ -32,7 +32,7 @@ Step 3: From terminal perform docker login using this api key: `docker login -u 
 
 Step 4: From terminal install docker compose: `sudo yum install -y docker`
 
-Step 5: While docker app is running, run docker build in root directory: `docker compose build`. This builds new docker images and needs to be done anytime 
+Step 5: While docker app is running, run docker build in root directory - `docker compose build`. This builds new docker images and needs to be done anytime 
 there is a code change in one of the services.
 
 Step 6: To run docker containers: `docker compose up -d`
