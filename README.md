@@ -2,7 +2,7 @@
 
 The backend consits of five live microservices - `service-backend`,`service-frontend`, `service-sqlite`, `service-mbti`, `service-kundali`. Each of these services run as a seperate docker container on an exclusive port. Frontend only communicates to `service-backend` and then `service-backend` communicates with `service-sqlite` to fetch and feed data to the SQL database, with `service-kundali` to get kundali score and `service-mbti` to get mbti personality type probabilities.
 
-Building micorservices helps in decoupling the code, reduces package interdependancies, and promotes modularity where components like `service-kundali` can be easily replaced with one with better features. 
+Building micorservices helps in decoupling the code, reduces package interdependancies, and promotes modularity where components and custom models can be easily modified/upgraded. 
 
 ## Micorservices Description
 
@@ -21,6 +21,8 @@ Building micorservices helps in decoupling the code, reduces package interdepend
 Each microservice is hosted in its own docker container. Docker images installs required packages from `requirements.txt` file during build step, copies all required files, and runs handler `.py` file which exposes flask API endpoints to be pinged by otherservices. Each micorservice contains its own `Dockerfile`
 Multiple microservices are orchestrated together using a docker compose `.yml` file.
 There are multiple `docker-compose.yml` files in the repository, Use the one that specifies `DEPLOYMENT_ENV` as `local` for `backend-service`.
+
+IMPORTANT: Before starting make sure to create a `.env` file with `API KEYS` and `SECRETS` locally.
 
 Step 1: Install docker app `https://www.docker.com/get-started/` 
 
@@ -57,7 +59,9 @@ Step 10: To stop all running containers: `docker compose down`
 
 1. On ec2 proceed commands with `sudo`
 
-2. Pull images on EC2 from docker repository instead of building them like in local. These images still need to be build locally using `--platform linux/amd64` and then pushed to docker repository
+2. Pull images on EC2 from docker repository instead of building them like in local. These images still need to be build locally using `--platform linux/amd64` and then pushed to docker repository.
+
+3. `backend.py` should utilize secrets from AWS secrets manger instead of local env file 
 
 ## Install Docker on EC2:
 
