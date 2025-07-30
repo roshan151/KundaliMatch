@@ -10,7 +10,7 @@ Building micorservices helps in decoupling the code, reduces package interdepend
 
 `service-frontend`: Hosted on port `8080`. Contains react code for the webapp frontend that utilizes above backend.
 
-`service-sqlite`: Hosted on port `8030`. Provides an endpoint `/execute`, use this endpoint to run SQL queries.
+`service-sqlite`: Hosted on port `8030`. Provides an endpoint `/execute`, use this endpoint to maintain SQL-lite databases and execute SQL queries.
 
 `service-kundali`: Hosted on port `8000`. Provides a kundali score using input - date of birth, time of birth, and lat, long of birthplace.
 
