@@ -60,7 +60,14 @@ def init_tables():
         FILTERS TEXT,
         NOTIFICATIONS TEXT,
         INITIATE_CHATS TEXT,
-        PREFERENCE_CHATS TEXT
+        PREFERENCE_CHATS TEXT,
+        MBTI TEXT,
+        MBTI_DESCRIPTION TEXT,
+        MBTI_RESPONSE TEXT,
+        DESTINY_CHATS TEXT,
+        QUESTION1 TEXT,
+        QUESTION2 TEXT,
+        QUESTION3 TEXT
     )
     """
     
@@ -80,6 +87,9 @@ def init_tables():
         BLOCK2 BOOLEAN DEFAULT FALSE,
         NAME1 TEXT,
         NAME2 TEXT,
+        REASON1 TEXT,
+        REASON2 TEXT,
+        FILTERED BOOLEAN,
         CONVERSATION_SID TEXT,
         PRIMARY KEY (UID1, UID2)
     )
