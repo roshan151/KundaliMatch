@@ -38,23 +38,64 @@ def init_database():
         
         # Create a sample table for testing
         cursor.execute('''
-            CREATE TABLE IF NOT EXISTS sample_data (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                value TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            CREATE TABLE IF NOT EXISTS PROFILE_DB (
+                UID TEXT PRIMARY KEY,
+                PASSWORD TEXT NOT NULL,
+                NAME TEXT NOT NULL,
+                PHONE TEXT,
+                EMAIL TEXT,
+                EMAIL_HASH TEXT,
+                CITY TEXT,
+                COUNTRY TEXT,
+                PROFESSION TEXT,
+                BIRTH_CITY TEXT,
+                BIRTH_COUNTRY TEXT,
+                DOB TEXT,
+                TOB TEXT,
+                GENDER TEXT,
+                HOBBIES TEXT,
+                LAT TEXT,
+                LONG TEXT,
+                IMAGES TEXT,
+                CREATED TEXT,
+                LOGIN TEXT,
+                FILTERS TEXT,
+                NOTIFICATIONS TEXT,
+                INITIATE_CHATS TEXT,
+                PREFERENCE_CHATS TEXT,
+                MBTI TEXT,
+                MBTI_DESCRIPTION TEXT,
+                MBTI_RESPONSE TEXT,
+                DESTINY_CHATS TEXT,
+                QUESTION1 TEXT,
+                QUESTION2 TEXT,
+                QUESTION3 TEXT
             )
-        ''')
-        
-        # Insert some sample data if table is empty
-        cursor.execute('SELECT COUNT(*) FROM sample_data')
-        if cursor.fetchone()[0] == 0:
-            sample_data = [
-                ('Sample 1', 'Value 1'),
-                ('Sample 2', 'Value 2'),
-                ('Sample 3', 'Value 3')
-            ]
-            cursor.executemany('INSERT INTO sample_data (name, value) VALUES (?, ?)', sample_data)
+        '''
+        )
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS MATCHING_TABLE (
+                UID1 TEXT NOT NULL,
+                UID2 TEXT NOT NULL,
+                SCORE REAL,
+                CREATED TEXT,
+                UPDATED TEXT,
+                ALIGN1 BOOLEAN DEFAULT FALSE,
+                ALIGN2 BOOLEAN DEFAULT FALSE,
+                SKIP1 BOOLEAN DEFAULT FALSE,
+                SKIP2 BOOLEAN DEFAULT FALSE,
+                BLOCK1 BOOLEAN DEFAULT FALSE,
+                BLOCK2 BOOLEAN DEFAULT FALSE,
+                NAME1 TEXT,
+                NAME2 TEXT,
+                REASON1 TEXT,
+                REASON2 TEXT,
+                FILTERED BOOLEAN,
+                CONVERSATION_SID TEXT,
+                PRIMARY KEY (UID1, UID2)    )
+        '''
+        )
         
         conn.commit()
         conn.close()
