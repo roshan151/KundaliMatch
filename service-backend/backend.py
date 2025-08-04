@@ -7,7 +7,6 @@ import random
 import base64
 import asyncio
 import requests
-import boto3
 import copy
 import hashlib
 import pandas as pd
@@ -18,6 +17,9 @@ import logging as log
 from psycopg2 import sql
 from flask import send_file, make_response
 from datetime import datetime, date
+
+import boto3
+from botocore.exceptions import ClientError
 
 from twilio.jwt.access_token.grants import ChatGrant
 from twilio.jwt.access_token import AccessToken
@@ -32,7 +34,6 @@ from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 from cryptography.fernet import Fernet
 from urllib.parse import unquote
-
 
 from destiny_agent import chat_flow, FilterAgent
 
@@ -59,37 +60,52 @@ REGION = config.REGION
 CURRENT_DIR = os.getcwd()
 
 # Get secrets from AWS Secrets manager
-# def get_secrets(secret_name):
-#     """Load sensitive secrets from AWS Secrets Manager using IAM credentials"""
-
-#     # Create a boto3 session using IAM credentials
-#     session = boto3.session.Session(
-#         region_name=REGION
-#     )
-
-#     client = session.client(service_name='secretsmanager')
-
-#     try:
-#         get_secret_value_response = client.get_secret_value(
-#             SecretId=secret_name
-#         )
-#     except Exception as e:
-#         log.error(f"Error getting secrets: {e}")
-#         raise e
-#     else:
-#         if 'SecretString' in get_secret_value_response:
-#             re
-# Get secrets from local .env file
 def get_secrets(secret_name):
-    """Load sensitive secrets from local .env file"""
-    from dotenv import load_dotenv
-    load_dotenv()
-    keys = os.environ.keys()
-    secrets = {}
-    for key in keys:
-        secrets[key] = os.getenv(key)
+    """Load sensitive secrets from AWS Secrets Manager using IAM credentials"""
 
-    return secrets
+    # Create a boto3 session using IAM credentials
+    session = boto3.session.Session(
+        region_name=REGION
+    )
+
+    client = session.client(service_name='secretsmanager')
+
+    try:
+        get_secret_value_response = client.get_secret_value(
+            SecretId=secret_name
+        )
+    except ClientError as e:
+        log.error(f"Error getting secrets: {e}")
+        raise e
+    except Exception as e:
+        log.error(f"Unexpected error getting secrets: {e}")
+        raise e
+    else:
+        if 'SecretString' in get_secret_value_response:
+            # Most secrets are stored as JSON strings
+            secret_string = get_secret_value_response['SecretString']
+            try:
+                # Try to parse as JSON
+                return json.loads(secret_string)
+            except json.JSONDecodeError:
+                # If not JSON, return as plain string
+                return secret_string
+        else:
+            # Handle binary secrets
+            import base64
+            binary_secret_data = get_secret_value_response['SecretBinary']
+            return base64.b64decode(binary_secret_data).decode('utf-8')
+# Get secrets from local .env file
+# def get_secrets(secret_name):
+#     """Load sensitive secrets from local .env file"""
+#     from dotenv import load_dotenv
+#     load_dotenv()
+#     keys = os.environ.keys()
+#     secrets = {}
+#     for key in keys:
+#         secrets[key] = os.getenv(key)
+
+#     return secrets
 
 
 # Load secrets

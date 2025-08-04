@@ -15,7 +15,11 @@ COPY . .
 
 RUN npm install --save-dev terser
 
-# Build the application
+# Set production environment variables for build
+ENV VITE_API_URL=/api
+ENV VITE_PROFILE_API_URL=/api
+
+# Build the application with production API URLs
 RUN npm run build
 
 # Production stage
@@ -31,4 +35,4 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 8080
 
 # Start nginx
-CMD ["nginx", "-g", "daemon off;"] 
+CMD ["nginx", "-g", "daemon off;"]
