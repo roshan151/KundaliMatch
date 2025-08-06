@@ -20,6 +20,9 @@ ENV VITE_API_URL=/api
 ENV VITE_PROFILE_API_URL=/api
 
 # Build the application with production API URLs
+ENV VITE_API_URL=/api
+ENV VITE_PROFILE_API_URL=/api
+ENV NODE_ENV=production
 RUN npm run build
 
 # Production stage

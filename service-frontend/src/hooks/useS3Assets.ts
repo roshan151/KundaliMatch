@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 
-// Backend API base URL
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8040';
+// Backend API base URL - use Vite environment variables
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8040';
 
 interface S3Assets {
   logo: string | null;
