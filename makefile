@@ -12,21 +12,45 @@ SSH := ssh -i $(SSH_KEY) $(EC2_USER)@$(EC2_HOST)
 
 .PHONY: setup-docker get-image run-container verify-container publish clean
 
-VERSION = v0.2.7
+VERSION = v0.2.8
 
-BACKEND_IMAGE = kundalimatch-backend-service-amd64
-KUNDALI_IMAGE = kundalimatch-kundali-service-amd64
+BACKEND_IMAGE = destiny-match-backend-service
+FRONTEND_IMAGE = destiny-match-frontend-service
+SQL_IMAGE = destiny-match-sql-service
+KUNDALI_IMAGE = destiny-match-kundali-service
+MBTI_IMAGE = destiny-match-mbti-service
 
 publish:
 	docker tag docker.io/library/$(BACKEND_IMAGE):latest docker.io/roshancodeitup/$(BACKEND_IMAGE):latest
 	docker tag docker.io/roshancodeitup/$(BACKEND_IMAGE):latest docker.io/roshancodeitup/$(BACKEND_IMAGE):$(VERSION)
+
+	docker tag docker.io/library/$(FRONTEND_IMAGE):latest docker.io/roshancodeitup/$(FRONTEND_IMAGE):latest
+	docker tag docker.io/roshancodeitup/$(FRONTEND_IMAGE):latest docker.io/roshancodeitup/$(FRONTEND_IMAGE):$(VERSION)
+
+	docker tag docker.io/library/$(SQL_IMAGE):latest docker.io/roshancodeitup/$(SQL_IMAGE):latest
+	docker tag docker.io/roshancodeitup/$(SQL_IMAGE):latest docker.io/roshancodeitup/$(SQL_IMAGE):$(VERSION)
+
 	docker tag docker.io/library/$(KUNDALI_IMAGE):latest docker.io/roshancodeitup/$(KUNDALI_IMAGE):latest
 	docker tag docker.io/roshancodeitup/$(KUNDALI_IMAGE):latest docker.io/roshancodeitup/$(KUNDALI_IMAGE):$(VERSION)
 
+	docker tag docker.io/library/$(MBTI_IMAGE):latest docker.io/roshancodeitup/$(MBTI_IMAGE):latest
+	docker tag docker.io/roshancodeitup/$(MBTI_IMAGE):latest docker.io/roshancodeitup/$(MBTI_IMAGE):$(VERSION)
+
+
 	docker push docker.io/roshancodeitup/$(BACKEND_IMAGE):latest
 	docker push docker.io/roshancodeitup/$(BACKEND_IMAGE):$(VERSION)
+	
+	docker push docker.io/roshancodeitup/$(FRONTEND_IMAGE):latest
+	docker push docker.io/roshancodeitup/$(FRONTEND_IMAGE):$(VERSION)
+
 	docker push docker.io/roshancodeitup/$(KUNDALI_IMAGE):latest
 	docker push docker.io/roshancodeitup/$(KUNDALI_IMAGE):$(VERSION)
+
+	docker push docker.io/roshancodeitup/$(SQL_IMAGE):latest
+	docker push docker.io/roshancodeitup/$(SQL_IMAGE):$(VERSION)
+
+	docker push docker.io/roshancodeitup/$(MBTI_IMAGE):latest
+	docker push docker.io/roshancodeitup/$(MBTI_IMAGE):$(VERSION)
 
 # 1. Set up Docker on EC2
 setup-docker:

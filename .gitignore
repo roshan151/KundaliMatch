@@ -2,6 +2,7 @@
 certs/
 credentials.make
 key.pem
+destiny-match.pem
 .DS_Store
 __pycache__/
 docker-compose-ec2.yml

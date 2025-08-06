@@ -110,7 +110,7 @@
     );
     min-height: 100vh;
     color: hsl(var(--foreground));
-    font-family: 'Amazon Ember', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   }
 
   #root {
@@ -161,7 +161,7 @@
   }
 
   .amazon-font {
-    font-family: 'Amazon Ember', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   }
 }
 
