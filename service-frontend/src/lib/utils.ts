@@ -5,8 +5,8 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-// Backend API base URL
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8040';
+// Backend API base URL - use Vite environment variables
+const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
 // Function to get image URL through backend proxy (more secure than direct S3 access)
 export const getImageUrl = (s3Url: string): string => {

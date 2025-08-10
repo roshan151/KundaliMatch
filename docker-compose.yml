@@ -1,11 +1,11 @@
+version: "3.8"
+
 services:
   frontend-service:
     build: ./service-frontend
     platform: linux/amd64
     ports:
-      - "8080:8080"
-    environment:
-      - NODE_ENV=production
+      - "127.0.0.1:8080:8080"
     depends_on:
       - backend-service
 
@@ -15,8 +15,13 @@ services:
       context: ./service-backend
     platform: linux/amd64
     ports:
-      - "8040:8040"
+      - "127.0.0.1:8040:8040"
     depends_on:
+<<<<<<< Updated upstream
+=======
+      - sql-service
+      - sql-service
+>>>>>>> Stashed changes
       - kundali-service
       - sql-service
       - mbti-service
@@ -25,6 +30,7 @@ services:
       AWS_DEFAULT_REGION: us-east-1
     volumes:
       - ~/.aws:/root/.aws:ro
+    restart: unless-stopped
 
   kundali-service:
     build: 
@@ -45,6 +51,8 @@ services:
     environment:
       - FLASK_ENV=production
       - PYTHONUNBUFFERED=1
+    volumes:
+      - sqlite_data:/app/data  # Persist SQLite database data
     restart: unless-stopped
     
 

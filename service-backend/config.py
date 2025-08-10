@@ -6,8 +6,8 @@ class Config:
 
     # Matching configs
     ALLOWED_FORMATS = {'jpeg', 'jpg', 'png'}
-    KUNDALI_WEIGHT = 0.8
-    PERSONAL_WEIGHT = 1-KUNDALI_WEIGHT
+    KUNDALI_WEIGHT = 0.5
+    MBTI_WEIGHT = 1-KUNDALI_WEIGHT
     TOTAL_GUN = 36
     MAX_MATCHES = 10
     SCORE_OUT_OF = 10

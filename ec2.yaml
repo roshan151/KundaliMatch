@@ -1,29 +1,47 @@
+version: '3.8'
+
 services:
   frontend-service:
     image: docker.io/roshancodeitup/aligned-frontend-amd64:latest
     ports:
-      - 8080:8080
+      - "127.0.0.1:8080:8080"  # Only bind to localhost for security
     depends_on:
       - backend-service
+    restart: unless-stopped
       
   backend-service:
     image: docker.io/roshancodeitup/destiny-match-backend-service-amd64:latest
     ports:
-      - "8060:8060"
+      - "127.0.0.1:8040:8040"  # Only bind to localhost for security
     depends_on:
       - kundali-service
+      - sql-service
+      - mbti-service
+    environment:
+      - DEPLOYMENT_ENV=production
+    restart: unless-stopped
 
   kundali-service:
     image: docker.io/roshancodeitup/destiny-match-kundali-service-amd64:latest
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"  # Only bind to localhost
+    restart: unless-stopped
 
   sql-service:
     image: docker.io/roshancodeitup/destiny-match-sql-service-amd64:latest
     ports:
-      - "8030:8030"
+      - "127.0.0.1:8030:8030"  # Only bind to localhost
+    volumes:
+      - sqlite_data:/app/data  # Persist SQLite database data
+    restart: unless-stopped
 
   mbti-service:
     image: docker.io/roshancodeitup/destiny-match-mbti-service-amd64:latest
     ports:
-      - "8010:8010"
+      - "127.0.0.1:8010:8010"  # Only bind to localhost
+    restart: unless-stopped
+
+# Define named volumes for data persistence
+volumes:
+  sqlite_data:
+    driver: local

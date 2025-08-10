@@ -1,6 +1,6 @@
 export const config = {
-  URL: import.meta.env.VITE_API_URL || 'http://localhost:8040',
-  PROFILE_URL: import.meta.env.VITE_PROFILE_API_URL || 'http://localhost:8080',
+  URL: import.meta.env.VITE_API_URL || '/api',
+  PROFILE_URL: import.meta.env.VITE_PROFILE_API_URL || '/api',
   MAX_IMAGES: 5,
   ENDPOINTS: {
     CREATE_ACCOUNT: '/account:create',

@@ -278,9 +278,31 @@ def get_lat_long(address):
 def get_kundali_score():
     return random.uniform(0.1, 0.9)
     
-# TODO- Build personal scoring logic using hobbies
-def get_personal_score(hobbies, row):
-    return random.uniform(0.1, 0.9)
+# mbti scoring logic using mbti_response
+def get_mbti_score(mbti_user, mbti_rec):
+    '''
+    Requires user's MBTI_RESPONSE and recommendations MBTI_RESPONSE
+    Provides a floating point score between 0 and 1
+    '''
+
+    score = 0
+    
+    # Mbti score is average of mbti score calculated as per user's golden pairs and as per recommendation's golden pair 
+    for mbti, multiplier in mbti_user['best_compatibility_matches'].items():
+        if mbti == mbti_rec['mbti_type']:
+            score += mbti_rec['confidence']*(multiplier/100)
+
+    score = score*mbti_user['confidence']
+
+    for mbti, multiplier in mbti_rec['best_compatibility_matches'].items():
+        if mbti == mbti_user['mbti_type']:
+            score += mbti_user['confidence']*(multiplier/100)
+
+    score = score*mbti_rec['confidence']
+
+    # Return average
+    return score/2
+
 
 def get_mbti_type(text):
     try:
@@ -339,10 +361,10 @@ def compute_score(user_1 : list, user_2 : list):
         log.info(f'Kundali score is None.')
         kundali_score = get_kundali_score()
 
-    # TODO - Personal score scoring through hobbies
-    personal_score = get_personal_score(user_1['HOBBIES'], user_2['HOBBIES'])
+    # Uing eval as mbti response is saved as string in the DB
+    mbti_score = get_mbti_score(eval(user_1['MBTI_RESPONSE']), eval(user_2['MBTI_RESPONSE']))
 
-    return round(((kundali_score/config.TOTAL_GUN)*config.KUNDALI_WEIGHT + personal_score*config.PERSONAL_WEIGHT)*config.SCORE_OUT_OF, 1)
+    return round(((kundali_score/config.TOTAL_GUN)*config.KUNDALI_WEIGHT + mbti_score*config.MBTI_WEIGHT)*config.SCORE_OUT_OF, 1)
 
 
 app = Flask(__name__)
@@ -501,14 +523,14 @@ async def populate_matches(uid, gender):
     # Select self user data using RDS
     profile_connect = SQLConnect(url = config.SQL_SERVICE_URL, port = config.SQL_SERVICE_PORT)
 
-    select_self = F"SELECT UID, NAME, DOB, TOB, LAT, LONG, HOBBIES, QUESTION1, QUESTION2, QUESTION3 FROM {config.PROFILE_TABLE} WHERE UID = '{uid}'"
+    select_self = F"SELECT UID, NAME, DOB, TOB, LAT, LONG, HOBBIES, MBTI_RESPONSE FROM {config.PROFILE_TABLE} WHERE UID = '{uid}'"
     profile_connect.cursor.execute(select_self)
 
     # Fetch all results
     self_result = profile_connect.cursor.fetchone()
     name = self_result["NAME"]
     
-    select_sql = f"SELECT UID, DOB, TOB, LAT, LONG, HOBBIES, NAME, QUESTION1, QUESTION2, QUESTION3 FROM {config.PROFILE_TABLE} WHERE GENDER = '{fetch}'"
+    select_sql = f"SELECT UID, DOB, TOB, LAT, LONG, HOBBIES, NAME, MBTI_RESPONSE FROM {config.PROFILE_TABLE} WHERE GENDER = '{fetch}'"
     log.info(f'Executing query: {select_sql}')
     profile_connect.cursor.execute(select_sql)
     results = profile_connect.cursor.fetchall()
