@@ -7,6 +7,7 @@ dotenv
 absl-py
 openai
 langchain
+langchain-openai
 langchain_community
 argon2-cffi
 twilio

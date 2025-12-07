@@ -1,8 +1,5 @@
 import { useState, useEffect } from 'react';
 
-// Backend API base URL
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8040';
-
 interface S3Assets {
   logo: string | null;
   loginBackground: string | null;
@@ -26,12 +23,13 @@ export const useS3Assets = () => {
       try {
         setLoading(true);
         
-        // Use backend image proxy endpoints instead of direct S3 access
+        // Use local static assets from public folder
+        // Vite serves files from public/ directory at the root path
         setAssets({
-          logo: `${API_BASE_URL}/image/frontend/logo.png`,
-          loginBackground: `${API_BASE_URL}/image/frontend/login_page_bg.png`,
-          chatBackground: `${API_BASE_URL}/image/frontend/chat_background.png`,
-          contentBackground: `${API_BASE_URL}/image/frontend/content_background.png`,
+          logo: '/logo.png',
+          loginBackground: '/login_page_bg.png',
+          chatBackground: '/chat_background.png',
+          contentBackground: '/content_background.png',
         });
       } catch (err) {
         console.error('Error loading assets:', err);

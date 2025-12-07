@@ -27,3 +27,5 @@ services:
     image: docker.io/roshancodeitup/destiny-match-mbti-service-amd64:latest
     ports:
       - "8010:8010"
+
+  

@@ -8,7 +8,7 @@ import requests
 import json
 import time
 
-BASE_URL = "http://localhost:8030"
+BASE_URL = "/sqlite"
 
 def test_health_check():
     """Test the health check endpoint."""

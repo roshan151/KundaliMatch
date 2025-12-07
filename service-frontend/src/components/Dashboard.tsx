@@ -621,7 +621,7 @@ const Dashboard = ({ userUID, setIsLoggedIn, onLogout, notifications = [] }: Das
         
         try {
           console.log('Making chat:initiate call for UID:', userUID);
-          const response = await fetch(`http://localhost:8040/chat:app`, {
+          const response = await fetch(`/backend/chat:app`, {
             method: 'POST',
             headers: {
               'Accept': 'application/json',
@@ -1336,7 +1336,7 @@ const Dashboard = ({ userUID, setIsLoggedIn, onLogout, notifications = [] }: Das
     try {
       // Try chat:preference endpoint first, fallback to chat:user
       let endpoint = 'chat:preference';
-      let response = await fetch(`http://localhost:8040/${endpoint}`, {
+      let response = await fetch(`/backend/${endpoint}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1352,7 +1352,7 @@ const Dashboard = ({ userUID, setIsLoggedIn, onLogout, notifications = [] }: Das
       if (!response.ok && response.status === 404) {
         console.log('chat:preference not available, falling back to chat:user');
         endpoint = 'chat:user';
-        response = await fetch(`http://localhost:8040/${endpoint}`, {
+        response = await fetch(`/backend/${endpoint}`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -1419,7 +1419,7 @@ const Dashboard = ({ userUID, setIsLoggedIn, onLogout, notifications = [] }: Das
         endpoint = 'chat:app';
       }
       
-      const response = await fetch(`http://localhost:8040/${endpoint}`, {
+      const response = await fetch(`/backend/${endpoint}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1485,7 +1485,7 @@ const Dashboard = ({ userUID, setIsLoggedIn, onLogout, notifications = [] }: Das
         const isPreferenceChatExit = showChatWindow;
         const endpoint = isPreferenceChatExit ? 'chat:user' : 'chat:app';
         
-        const response = await fetch(`http://localhost:8040/${endpoint}`, {
+        const response = await fetch(`/backend/${endpoint}`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

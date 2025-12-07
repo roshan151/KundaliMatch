@@ -7,7 +7,7 @@ import requests
 import json
 import time
 
-BASE_URL = "http://localhost:8030"
+BASE_URL = "/sqlite"
 
 def test_persistence():
     """Test that data persists across container restarts"""

@@ -63,7 +63,7 @@ pip install -r requirements.txt
 python sqlite_service.py
 ```
 
-The service will be available at `http://localhost:8030`
+The service will be available at `/sqlite`
 
 ## API Endpoints
 
@@ -72,7 +72,7 @@ The service will be available at `http://localhost:8030`
 - Returns service status and information
 
 ```bash
-curl http://localhost:8030/
+curl /sqlite/
 ```
 
 ### Execute SQL Query
@@ -91,21 +91,21 @@ curl http://localhost:8030/
 
 Select data:
 ```bash
-curl -X POST http://localhost:8030/execute \
+curl -X POST /sqlite/execute \
   -H "Content-Type: application/json" \
   -d '{"query": "SELECT * FROM sample_data"}'
 ```
 
 Insert data:
 ```bash
-curl -X POST http://localhost:8030/execute \
+curl -X POST /sqlite/execute \
   -H "Content-Type: application/json" \
   -d '{"query": "INSERT INTO sample_data (name, value) VALUES (?, ?)", "params": ["New Item", "New Value"]}'
 ```
 
 Create table:
 ```bash
-curl -X POST http://localhost:8030/execute \
+curl -X POST /sqlite/execute \
   -H "Content-Type: application/json" \
   -d '{"query": "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, email TEXT)"}'
 ```
@@ -115,7 +115,7 @@ curl -X POST http://localhost:8030/execute \
 - Returns all tables in the database
 
 ```bash
-curl http://localhost:8030/tables
+curl /sqlite/tables
 ```
 
 ### Get Table Schema
@@ -123,7 +123,7 @@ curl http://localhost:8030/tables
 - Returns schema information for a specific table
 
 ```bash
-curl http://localhost:8030/schema/sample_data
+curl /sqlite/schema/sample_data
 ```
 
 ### Create Backup
@@ -131,7 +131,7 @@ curl http://localhost:8030/schema/sample_data
 - Creates a timestamped backup of the database
 
 ```bash
-curl -X POST http://localhost:8030/backup
+curl -X POST /sqlite/backup
 ```
 
 ## Response Format
@@ -187,7 +187,7 @@ docker volume rm sqlite_data
 ### Backup and Restore
 ```bash
 # Create backup via API
-curl -X POST http://localhost:8030/backup
+curl -X POST /sqlite/backup
 
 # Manual backup (copy from volume)
 docker run --rm -v sqlite_data:/data -v $(pwd):/backup alpine cp /data/sqlite_service.db /backup/backup.db
@@ -244,13 +244,13 @@ Test the service with sample queries:
 
 ```bash
 # Test health check
-curl http://localhost:8030/
+curl /sqlite/
 
 # Test query execution
-curl -X POST http://localhost:8030/execute \
+curl -X POST /sqlite/execute \
   -H "Content-Type: application/json" \
   -d '{"query": "SELECT COUNT(*) as total FROM sample_data"}'
 
 # Test table listing
-curl http://localhost:8030/tables
+curl /sqlite/tables
 ``` 

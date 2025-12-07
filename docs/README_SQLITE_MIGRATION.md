@@ -21,7 +21,7 @@ cd service-sqlite
 python sqlite_service.py
 ```
 
-The service will run on `http://localhost:8030`
+The service will run on `/sqlite`
 
 ### 2. Initialize Database Tables
 
@@ -75,7 +75,7 @@ The SQLite tables maintain the same structure as the original Snowflake tables:
 ### SQLite Service Not Running
 If you get connection errors, ensure the SQLite service is running:
 ```bash
-curl http://localhost:8030/
+curl /sqlite/
 ```
 
 ### Database Not Initialized

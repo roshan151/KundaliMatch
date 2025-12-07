@@ -541,13 +541,13 @@ CREATE TABLE MATCHING_TABLE (
 
 ## 🌐 **External Service Integration**
 
-### **MBTI Service** (`http://mbti-service:8010`)
+### **MBTI Service** (`/mbti`)
 - **Endpoint**: `POST /predict`
 - **Purpose**: Personality analysis using BERT + LightGBM
 - **Input**: `{"text": "combined_personality_responses"}`
 - **Output**: `{"result": {"mbti_type": "INFP", "description": "..."}}`
 
-### **Kundali Service** (`http://kundali-service:8000`)
+### **Kundali Service** (`/kundali`)
 - **Endpoint**: `POST /get:score`
 - **Purpose**: Astrological compatibility scoring
 - **Input**: 
@@ -593,7 +593,7 @@ TWILIO_API_SECRET=your_api_secret
 docker-compose up -d
 
 # Check service health
-curl http://localhost:8040/
+curl /backend
 
 # View logs
 docker-compose logs backend-service
@@ -636,7 +636,7 @@ python backend.py
 
 ### **Create Account**
 ```bash
-curl -X POST http://localhost:8040/account:create \
+curl -X POST /backendaccount:create \
   -F 'metadata={"name":"John Doe","email":"john@test.com","password":"test123","phone":"1234567890","city":"mumbai","country":"india","profession":"engineer","birth_city":"delhi","birth_country":"india","dob":"1990-05-15","tob":"14:30","gender":"male","hobbies":["reading","coding"],"Question1":{"Question":"Ideal date?","Answer":"Coffee chat"},"Question2":{"Question":"Describe yourself","Answer":"Tech enthusiast"},"Question3":{"Question":"Looking for?","Answer":"Meaningful connection"}}' \
   -F 'images=@profile1.jpg' \
   -F 'images=@profile2.jpg'
@@ -644,14 +644,14 @@ curl -X POST http://localhost:8040/account:create \
 
 ### **Chat with Destiny**
 ```bash
-curl -X POST http://localhost:8040/chat:user \
+curl -X POST /backendchat:user \
   -H "Content-Type: application/json" \
   -d '{"uid":"user-uuid","user_input":"Show me engineers from Bangalore","history":[]}'
 ```
 
 ### **Get Recommendations**
 ```bash
-curl http://localhost:8040/get:recommendations/user-uuid
+curl /backendget:recommendations/user-uuid
 ```
 
 ---

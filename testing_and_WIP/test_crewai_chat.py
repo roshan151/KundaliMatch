@@ -8,7 +8,7 @@ import json
 import time
 
 # Test configuration
-BASE_URL = "http://localhost:8040"
+BASE_URL = "/backend"
 TEST_UID = "test_user_123"
 
 

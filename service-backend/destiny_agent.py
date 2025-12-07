@@ -6,8 +6,8 @@ import random
 import re
 from typing import Dict, List, Any, Optional
 from pydantic import BaseModel, Field
-from langchain.chat_models import ChatOpenAI
-from langchain.schema import HumanMessage, SystemMessage, AIMessage
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 
 import logging as log
 from config import config

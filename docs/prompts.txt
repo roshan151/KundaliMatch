@@ -208,7 +208,7 @@ The base URL is configured in src/config/api.ts:
 
 
 export const config = {
-  URL: 'http://localhost:8000',
+  URL: '/kundali',
   MAX_IMAGES: 5
 };
 All requests use FormData format as expected by your Python backend, and the frontend handles the responses to populate the UI accordingly.
@@ -297,7 +297,7 @@ The base URL is configured in src/config/api.ts:
 
 
 export const config = {
-  URL: 'http://localhost:8000',
+  URL: '/kundali',
   MAX_IMAGES: 5
 };
 All requests use FormData format as expected by your Python backend, and the frontend handles the responses to populate the UI accordingly.

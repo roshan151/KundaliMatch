@@ -27,7 +27,7 @@ EXPOSE 8010
 
 # Health check using Python instead of curl
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8010/health')" || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('/mbti/health')" || exit 1
 
 # Run the application
 CMD ["python", "mbti_service.py"] 

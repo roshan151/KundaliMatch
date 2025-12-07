@@ -8438,7 +8438,7 @@
             "credentialScope" : {
               "region" : "us-east-1"
             },
-            "hostname" : "localhost:8000",
+            "hostname" : "kundali-service:8000",
             "protocols" : [ "http" ]
           },
           "me-central-1" : { },
@@ -26160,7 +26160,7 @@
             "credentialScope" : {
               "region" : "us-east-1"
             },
-            "hostname" : "localhost:8000",
+            "hostname" : "kundali-service:8000",
             "protocols" : [ "http" ]
           },
           "me-central-1" : { },

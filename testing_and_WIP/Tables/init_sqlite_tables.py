@@ -11,7 +11,7 @@ import json
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-SQLITE_SERVICE_URL = "http://localhost:8030"
+SQLITE_SERVICE_URL = "/sqlite"
 
 def execute_sql(query, description=""):
     """Execute SQL query through SQLite service"""

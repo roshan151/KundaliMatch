@@ -15,7 +15,12 @@ COPY . .
 
 RUN npm install --save-dev terser
 
-# Build the application
+# Set production environment variables for build
+ENV VITE_API_URL=/backend
+ENV VITE_PROFILE_API_URL=/backend
+ENV NODE_ENV=production
+
+# Build the application with correct API URLs
 RUN npm run build
 
 # Production stage

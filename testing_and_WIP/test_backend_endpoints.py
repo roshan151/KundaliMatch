@@ -2,7 +2,7 @@ import requests
 import json
 from sqlite_adapter import SQLConnect
 
-BASE_URL = "http://localhost:8040"
+BASE_URL = "/backend"
 
 # Get test users from SQLite
 def fetch_test_data():

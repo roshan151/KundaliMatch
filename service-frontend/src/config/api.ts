@@ -1,5 +1,5 @@
 export const config = {
-  URL: import.meta.env.VITE_API_URL || 'http://localhost:8040',
+  URL: import.meta.env.VITE_API_URL || '/backend',
   PROFILE_URL: import.meta.env.VITE_PROFILE_API_URL || 'http://localhost:8080',
   MAX_IMAGES: 5,
   ENDPOINTS: {

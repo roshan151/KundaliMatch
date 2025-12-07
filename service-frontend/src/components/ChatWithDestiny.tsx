@@ -103,7 +103,7 @@ const ChatWithDestiny = ({
         history: history
       };
 
-      const response = await fetch("http://localhost:8040/chat:user", {
+      const response = await fetch("/backend/chat:user", {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -192,7 +192,7 @@ const ChatWithDestiny = ({
 
     // Send exit message to server in the background (don't wait for response)
     if (userUID) {
-      fetch('http://localhost:8040/chat:user', {
+      fetch('/backend/chat:user', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

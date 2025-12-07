@@ -1,0 +1,47 @@
+services:
+  frontend-service:
+    build: ./service-frontend
+    # image: docker.io/roshancodeitup/aligned-frontend-amd64:latest
+    expose:
+      - "8080"
+    depends_on:
+      - backend-service
+      
+  backend-service:
+    build: ./service-backend
+    # image: docker.io/roshancodeitup/destiny-match-backend-service-amd64:latest
+    expose:
+      - "8040"
+    depends_on:
+      - kundali-service
+
+  kundali-service:
+    build: ./service-kundali
+    # image: docker.io/roshancodeitup/destiny-match-kundali-service-amd64:latest
+    expose:
+      - "8000"
+
+  sql-service:
+    build: ./service-sqlite
+    # image: docker.io/roshancodeitup/destiny-match-sql-service-amd64:latest
+    expose:
+      - "8030"
+
+  mbti-service:
+    build: ./service-mbti
+    # image: docker.io/roshancodeitup/destiny-match-mbti-service-amd64:latest
+    expose:
+      - "8010"
+
+  nginx-proxy:
+    image: nginx:alpine
+    ports:
+      - "9000:9000"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - frontend-service
+      - backend-service
+      - mbti-service
+      - kundali-service
+      - sql-service
